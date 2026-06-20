@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, ipcMain, Menu, dialog, shell, Tray, nativeImage, Notification } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu, dialog, shell, Tray, nativeImage, Notification } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const fsp = require("fs/promises");
@@ -6,7 +6,6 @@ const fsp = require("fs/promises");
 const isDev = !app.isPackaged;
 let mainWindow = null;
 let tray = null;
-let autoUpdater = null;
 
 // Windows 通知必须设置 AppUserModelID，否则 Notification.show() 静默失败
 app.setAppUserModelId("com.jingzong.worklog");
@@ -14,17 +13,7 @@ app.setAppUserModelId("com.jingzong.worklog");
 // 允许 Audio.play() 无需用户手势（提醒声音播放）
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
-// 尝试加载 electron-updater（生产环境可选）
-if (!isDev) {
-  try {
-    const { autoUpdater: updater } = require("electron-updater");
-    autoUpdater = updater;
-    autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = true;
-  } catch {
-    // electron-updater 未安装，跳过自动更新
-  }
-}
+// Win7版：不支持自动更新，electron-updater 已移除
 
 // 窗口尺寸常量
 const LOGIN_SIZE = { width: 974, height: 711 };
@@ -280,60 +269,6 @@ ipcMain.handle("show-save-dialog", async (_event, { defaultName, buffer }) => {
     return { success: false, error: err.message };
   }
 });
-
-// ======================== 自动更新 ========================
-
-ipcMain.handle("check-for-updates", async () => {
-  if (!autoUpdater) return { available: false, error: "auto-updater not available" };
-  try {
-    const result = await autoUpdater.checkForUpdates();
-    if (result && result.updateInfo) {
-      return {
-        available: true,
-        version: result.updateInfo.version,
-        releaseNotes: result.updateInfo.releaseNotes || "",
-      };
-    }
-    return { available: false };
-  } catch (err) {
-    return { available: false, error: err.message };
-  }
-});
-
-ipcMain.handle("download-update", async () => {
-  if (!autoUpdater) return { success: false, error: "auto-updater not available" };
-  try {
-    await autoUpdater.downloadUpdate();
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-});
-
-ipcMain.handle("install-update", () => {
-  if (autoUpdater) {
-    autoUpdater.quitAndInstall(false, true);
-  }
-});
-
-// 自动更新事件转发到渲染进程
-if (autoUpdater) {
-  autoUpdater.on("update-available", (info) => {
-    if (mainWindow) {
-      mainWindow.webContents.send("update-available", { version: info.version });
-    }
-  });
-  autoUpdater.on("download-progress", (progress) => {
-    if (mainWindow) {
-      mainWindow.webContents.send("update-progress", { percent: progress.percent });
-    }
-  });
-  autoUpdater.on("update-downloaded", () => {
-    if (mainWindow) {
-      mainWindow.webContents.send("update-downloaded");
-    }
-  });
-}
 
 // ======================== 托盘功能 ========================
 function createTray() {

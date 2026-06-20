@@ -38,13 +38,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onTriggerQuitBackup: (callback) =>
     ipcRenderer.on('trigger-quit-backup', () => callback()),
 
-  // 自动更新
-  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
-  downloadUpdate: () => ipcRenderer.invoke('download-update'),
-  installUpdate: () => ipcRenderer.invoke('install-update'),
-  onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (_event, data) => callback(data)),
-  onUpdateProgress: (callback) => ipcRenderer.on('update-progress', (_event, data) => callback(data)),
-  onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', () => callback()),
+  // Win7版：自动更新已移除
 
   // 开机自启
   getAutoStart: () => ipcRenderer.invoke('get-auto-start'),

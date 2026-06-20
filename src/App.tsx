@@ -28,9 +28,7 @@ declare global {
       checkAttachmentFile: (filePath: string) => Promise<{ success: boolean; exists: boolean; error?: string }>;
       getAttachmentsDir: () => Promise<string>;
       showSaveDialog: (defaultName: string, buffer: number[]) => Promise<{ success: boolean; canceled?: boolean; filePath?: string; error?: string }>;
-      checkForUpdates: () => Promise<{ available: boolean; version?: string; error?: string }>;
-      downloadUpdate: () => Promise<{ success: boolean; error?: string }>;
-      installUpdate: () => void;
+      // Win7版：自动更新已移除
     };
   }
 }
@@ -100,31 +98,6 @@ function AppContent() {
   const removeToast = useAppStore((s) => s.removeToast);
   const darkMode = useAppStore((s) => s.darkMode);
   const lowPerfMode = useAppStore((s) => s.lowPerfMode);
-
-  // Electron 自动更新检查
-  useEffect(() => {
-    if (!isElectron || !window.electronAPI?.checkForUpdates) return;
-    const timer = setTimeout(async () => {
-      try {
-        const result = await window.electronAPI.checkForUpdates();
-        if (result?.available) {
-          Modal.confirm({
-            title: `发现新版本 v${result.version}`,
-            content: '是否下载并安装更新？',
-            okText: '更新',
-            cancelText: '稍后',
-            onOk: async () => {
-              await window.electronAPI.downloadUpdate();
-              window.electronAPI.installUpdate();
-            },
-          });
-        }
-      } catch {
-        // 静默失败，不影响正常使用
-      }
-    }, 5000);
-    return () => clearTimeout(timer);
-  }, [isElectron]);
 
   const handleLogin = (name: string, role: string) => {
     setUser(name, role);
