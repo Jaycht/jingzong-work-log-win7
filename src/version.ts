@@ -1,9 +1,13 @@
-export const APP_VERSION = "V1.0.0";
-export const VERSION_MAJOR = 1;
-export const VERSION_MINOR = 0;
-export const VERSION_PATCH = 0;
+export const APP_VERSION = "V2.14.12";
+export const VERSION_MAJOR = 2;
+export const VERSION_MINOR = 14;
+export const VERSION_PATCH = 12;
 
 export const CHANGELOG: string[] = [
+  // ===== V2.14.12 =====
+  "V2.14.12 修复 - 备份功能遗漏IndexedDB数据：新增读取dailyNotes/massRecords/drafts到备份文件",
+  "V2.14.12 修复 - 恢复功能遗漏IndexedDB数据：新增写回dailyNotes/drafts到IndexedDB，修复重置后数据为空",
+  "V2.14.12 修复 - 退出时自动备份同步修复：同样覆盖IndexedDB数据",
   // ===== V2.14.11 =====
   "V2.14.11 新增 - 退出时自动备份：系统设置中开启后，点击退出自动保存全局备份到文档/jingzong_backups",
   "V2.14.11 新增 - 附件存储路径改到非C盘：自动检测D/E/F盘，优先非C盘保存附件",

@@ -564,10 +564,12 @@ interface BackupMeta {
 
 /**
  * 生成全量 JSON 备份
- * 读取所有 jingzong.* 开头的 localStorage key
+ * 读取所有 jingzong.* 开头的 localStorage key + IndexedDB 中的数据
  */
 export async function generateBackup(): Promise<void> {
   const data: RowData = {};
+
+  // 1) 读取 localStorage
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
     if (key && key.startsWith('jingzong.')) {
@@ -577,6 +579,17 @@ export async function generateBackup(): Promise<void> {
         data[key] = localStorageAdapter.getItem<string>(key, "");
       }
     }
+  }
+
+  // 2) 读取 IndexedDB 中的数据（dailyNotes、massRecords、drafts）
+  const idbKeys = indexedDBAdapter.keys('jingzong.');
+  for (const key of idbKeys) {
+    try {
+      const val = indexedDBAdapter.getItem(key, null);
+      if (val !== null && val !== undefined) {
+        data[key] = val;
+      }
+    } catch {}
   }
 
   const attachments = await exportAttachmentSnapshot();
@@ -643,15 +656,23 @@ export async function restoreFromJson(file: File): Promise<{ success: boolean; m
       return { success: false, message: '无效的备份文件格式' };
     }
 
+    // 清空 localStorage 和 IndexedDB
     localStorageAdapter.clear('jingzong.');
+    indexedDBAdapter.clear('jingzong.');
 
     let count = 0;
+
+    // 需要写入 IndexedDB 的 key 列表
+    const idbKeys = new Set(['jingzong.dailyNotes', 'jingzong.mass.records']);
+
     for (const [key, value] of Object.entries(backup.data)) {
       if (key.startsWith('jingzong.')) {
+        // 写入 localStorage
         localStorageAdapter.setItem(key, value);
         count++;
-        // 同时写入 IndexedDB（mass records 从 IndexedDB 读取）
-        if (key === 'jingzong.mass.records') {
+
+        // 写入 IndexedDB（dailyNotes、massRecords、drafts 等）
+        if (idbKeys.has(key) || key.startsWith('jingzong.draft.')) {
           indexedDBAdapter.setItem(key, value);
         }
       }
@@ -660,7 +681,7 @@ export async function restoreFromJson(file: File): Promise<{ success: boolean; m
     // 重建索引
     try {
       const { rebuildCaseIndex, rebuildSuspectIndex } = await import('../store/inputHistoryStore');
-      const records = localStorageAdapter.getItem('jingzong.mass.records', []);
+      const records = indexedDBAdapter.getItem('jingzong.mass.records', []);
       if (Array.isArray(records) && records.length > 0) {
         rebuildCaseIndex(records);
         rebuildSuspectIndex(records);

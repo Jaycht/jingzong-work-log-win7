@@ -112,12 +112,21 @@ export default function Backup() {
       const s = loadSettings();
       if (!s.backupOnQuit) return;
       try {
-        const data = {};
+        const data: Record<string, unknown> = {};
+        // 读取 localStorage
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
           if (key && key.startsWith('jingzong.')) {
             try { data[key] = localStorageAdapter.getItem(key, ''); } catch {}
           }
+        }
+        // 读取 IndexedDB（dailyNotes、massRecords、drafts）
+        const idbKeys = indexedDBAdapter.keys('jingzong.');
+        for (const key of idbKeys) {
+          try {
+            const val = indexedDBAdapter.getItem(key, null);
+            if (val !== null && val !== undefined) data[key] = val;
+          } catch {}
         }
         const attachments = await (await import('../utils/excelUtils')).exportAttachmentSnapshot?.() || [];
         const backup = { version: '2.0', createdAt: new Date().toISOString(), data, attachments };
