@@ -1,0 +1,36 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-electron:
+    name: Electron Desktop
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --legacy-peer-deps
+        env:
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+      - name: Build Electron Installer
+        run: npm run electron:build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*-V*.exe
+          draft: false
+          prerelease: false
+          generate_release_notes: true

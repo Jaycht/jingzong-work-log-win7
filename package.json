@@ -1,0 +1,98 @@
+{
+  "name": "jingzong-work-log-win7",
+  "private": true,
+  "version": "1.0.0",
+  "description": "经侦大队工作记录管理系统(Win7兼容版)",
+  "author": "陈洪涛",
+  "license": "MIT",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "electron:dev": "concurrently \"vite --host\" \"wait-on http://localhost:5173 && electron .\"",
+    "preelectron:build": "npm run typecheck && node scripts/bump-version.js",
+    "electron:build": "npm run typecheck && vite build && electron-builder",
+    "preelectron:build:dir": "npm run typecheck && node scripts/bump-version.js",
+    "electron:build:dir": "npm run typecheck && vite build && electron-builder --dir",
+    "typecheck": "tsc --noEmit --skipLibCheck",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "preview": "vite preview"
+  },
+  "build": {
+    "appId": "com.jingzong.worklog",
+    "productName": "经侦大队工作记录管理系统",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "app.ico"
+    ],
+    "win": {
+      "icon": "app.ico",
+      "artifactName": "${productName}-V${version}-${arch}.${ext}",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "经侦大队工作记录管理系统",
+      "installerIcon": "app.ico",
+      "uninstallerIcon": "app.ico",
+      "installerHeaderIcon": "app.ico",
+      "include": "build/installer.nsh"
+    }
+  },
+  "dependencies": {
+    "antd": "^6.4.3",
+    "clsx": "^2.1.1",
+    "dayjs": "^1.11.20",
+    "echarts": "^6.1.0",
+    "echarts-for-react": "^3.0.6",
+    "electron-updater": "^6.3.9",
+    "file-saver": "^2.0.5",
+    "framer-motion": "^12.40.0",
+    "jszip": "^3.10.1",
+    "lucide-react": "^1.16.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-router-dom": "^6.30.0",
+    "xlsx": "^0.18.5",
+    "zustand": "^5.0.13"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.0.0",
+    "@eslint/js": "^10.0.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/file-saver": "^2.0.7",
+    "@types/node": "^24.12.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^9.2.1",
+    "electron": "^22.3.27",
+    "electron-builder": "^24.13.3",
+    "electron-packager": "^17.1.2",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.6.0",
+    "jsdom": "^29.1.1",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.59.2",
+    "vite": "^8.0.12",
+    "vitest": "^4.1.8",
+    "wait-on": "^8.0.5"
+  }
+}
