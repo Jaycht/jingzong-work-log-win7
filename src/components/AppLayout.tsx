@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect } from "react";
+﻿import { lazy, Suspense, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Modal, Spin } from "antd";
 import { useLocation } from "react-router-dom";
@@ -119,7 +119,7 @@ export default function AppLayout() {
           }}
         >
           <span style={{ fontSize: 12, lineHeight: 1, color: darkMode ? 'rgba(255,255,255,0.35)' : '#9CA3AF', fontFamily: "'JetBrains Mono',monospace", flex: 1 }}>
-            经侦大队工作记录管理系统
+            经侦大队工作记录管理系统-Win7版
           </span>
           <div style={{ WebkitAppRegion: 'no-drag' as any, display: 'flex', gap: 2, paddingRight: 4 }}>
             <div onClick={winControls.min} title="最小化" style={{ width: 32, height: 22, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#9CA3AF', fontSize: 12 }} onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>─</div>

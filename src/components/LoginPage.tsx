@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { User, Lock, Eye, EyeOff } from "lucide-react";
@@ -370,7 +370,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
           }}
         >
           <span style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'JetBrains Mono',monospace", flex: 1 }}>
-            经侦大队工作记录管理系统
+            经侦大队工作记录管理系统-Win7版
           </span>
           <div style={{ WebkitAppRegion: 'no-drag' as any, display: 'flex', paddingRight: 4 }}>
             <div onClick={handleCloseLoginPage} title="关闭"
@@ -462,7 +462,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
                 marginBottom: 6,
               }}
             >
-              <span style={{ color: "#2563EB" }}>经侦大队工作记录管理系统</span>
+              <span style={{ color: "#2563EB" }}>经侦大队工作记录管理系统-Win7版</span>
             </motion.h2>
 
             {!lowPerfMode && (
@@ -857,7 +857,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
               fontFamily: "'JetBrains Mono',monospace",
             }}
           >
-            © 2026 陈洪涛 · 经侦大队工作记录管理系统 {APP_VERSION}
+            © 2026 陈洪涛 · 经侦大队工作记录管理系统-Win7版 {APP_VERSION}
           </span>
           <span
             style={{

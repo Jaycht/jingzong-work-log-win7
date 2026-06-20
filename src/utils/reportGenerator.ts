@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 通用日报/周报/月报生成器
  * 为每个模块生成 Word 兼容格式的报表
  */
@@ -176,7 +176,7 @@ ${tabDetails || '<p style="color:#999;">无详细记录数据。</p>'}
     <div class="sign-item"><div>审核人：</div><div class="sign-line">（签名）</div></div>
     <div class="sign-item"><div>日期：</div><div class="sign-line">${fmtDate(now)}</div></div>
   </div>
-  <div style="margin-top:20px;">本报告由经侦大队工作记录管理系统自动生成</div>
+  <div style="margin-top:20px;">本报告由经侦大队工作记录管理系统-Win7版自动生成</div>
 </div>
 
 </body>

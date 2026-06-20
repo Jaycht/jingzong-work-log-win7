@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, dialog, shell, Tray, nativeImage, Notification } = require("electron");
+﻿const { app, BrowserWindow, ipcMain, Menu, dialog, shell, Tray, nativeImage, Notification } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const fsp = require("fs/promises");
@@ -92,7 +92,7 @@ function createWindow() {
     backgroundColor: "#0B0F1A",
     icon: path.join(__dirname, "..", "app.ico"),
     show: false,
-    title: "经侦大队工作记录管理系统",
+    title: "经侦大队工作记录管理系统-Win7版",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -339,7 +339,7 @@ if (autoUpdater) {
 function createTray() {
   const iconPath = path.join(__dirname, "..", "app.ico");
   tray = new Tray(iconPath);
-  tray.setToolTip("经侦大队工作记录管理系统");
+  tray.setToolTip("经侦大队工作记录管理系统-Win7版");
 
   const contextMenu = Menu.buildFromTemplate([
     { label: "显示窗口", click: () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } } },

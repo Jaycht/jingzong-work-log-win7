@@ -1,7 +1,7 @@
 {
   "name": "jingzong-work-log-win7",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "经侦大队工作记录管理系统(Win7兼容版)",
   "author": "陈洪涛",
   "license": "MIT",
@@ -22,7 +22,7 @@
   },
   "build": {
     "appId": "com.jingzong.worklog",
-    "productName": "经侦大队工作记录管理系统",
+    "productName": "经侦大队工作记录管理系统-Win7版",
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -46,7 +46,7 @@
       "perMachine": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "经侦大队工作记录管理系统",
+      "shortcutName": "经侦大队工作记录管理系统-Win7版",
       "installerIcon": "app.ico",
       "uninstallerIcon": "app.ico",
       "installerHeaderIcon": "app.ico",
