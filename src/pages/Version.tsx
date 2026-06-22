@@ -1,4 +1,4 @@
-﻿import { useMemo } from "react";
+import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, CheckCircle, Sparkles, RefreshCw, Wrench } from "lucide-react";
 import { getCurrentVersion } from "../store/versionStore";
@@ -111,7 +111,7 @@ export default function Version() {
         <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 200, damping: 18, delay: 0.1 }} style={{ marginBottom: 20 }}>
           <img src="./logo.png" alt="" style={{ width: 360, height: 360, objectFit: "contain" }} />
         </motion.div>
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ fontSize: 22, fontWeight: 700, color: "var(--color-text)", marginBottom: 6, letterSpacing: 1 }}>{"经侦大队工作记录管理系统-Win7版"}</motion.div>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ fontSize: 22, fontWeight: 700, color: "var(--color-text)", marginBottom: 6, letterSpacing: 1 }}>{"经侦大队工作记录管理系统-Win7版-Win7版"}</motion.div>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.25 }} style={{ fontSize: 32, fontWeight: 900, color: "#155A8A", marginBottom: 8, letterSpacing: 2, fontFamily: "'Courier New', monospace" }}>{versionInfo.version}</motion.div>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 22, letterSpacing: 0.5 }}>Economic Investigation Work Log Registration System</motion.div>
         <div style={{ width: 60, height: 2, background: "linear-gradient(90deg, transparent, #1B5E9B, transparent)", margin: "0 auto 22px" }} />

@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Settings, Power, Monitor, ShieldCheck } from 'lucide-react';
 import { Switch } from 'antd';
@@ -86,7 +86,7 @@ export default function SystemSettings() {
           <Section title="关于软件" icon={<ShieldCheck size={16} />}>
             <div style={{ padding: '12px 0' }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text)', marginBottom: 4 }}>
-                经侦大队工作记录管理系统-Win7版
+                经侦大队工作记录管理系统-Win7版-Win7版
               </div>
               <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.8 }}>
                 <div>版本：{APP_VERSION}</div>
@@ -110,7 +110,7 @@ export default function SystemSettings() {
           >
             <img
               src="./logo.png"
-              alt="经侦大队工作记录管理系统-Win7版"
+              alt="经侦大队工作记录管理系统-Win7版-Win7版"
               style={{
                 width: 360,
                 height: 360,

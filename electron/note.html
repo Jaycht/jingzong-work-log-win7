@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:transparent;font-family:"Segoe UI","Microsoft YaHei UI",sans-serif}
+.note{width:100%;height:100%;display:flex;flex-direction:column;border-radius:10px;overflow:hidden;position:relative;box-shadow:0 8px 24px rgba(9,21,37,.2),0 2px 6px rgba(9,21,37,.1),inset 0 1px 0 rgba(255,255,255,.6);transition:box-shadow .2s}
+.note:hover{box-shadow:0 8px 32px rgba(9,21,37,.28),0 2px 8px rgba(9,21,37,.12)}
+.header{height:36px;min-height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 4px 0 10px;border-bottom:1px solid rgba(0,0,0,.06);position:relative;z-index:10;-webkit-app-region:drag}
+.header-left{display:flex;align-items:center;gap:6px;pointer-events:none;min-width:0;flex:1}
+.color-indicator{pointer-events:auto;-webkit-app-region:no-drag;width:12px;height:12px;border-radius:50%;border:1.5px solid rgba(255,255,255,.7);box-shadow:0 1px 3px rgba(0,0,0,.12);cursor:pointer;flex-shrink:0;transition:transform .15s}
+.color-indicator:hover{transform:scale(1.2)}
+.meta-label{font-size:10px;font-weight:500;opacity:.4;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;-webkit-app-region:no-drag}
+.header-right{display:flex;align-items:center;gap:1px;opacity:0;transition:opacity .15s;-webkit-app-region:no-drag}
+.note:hover .header-right{opacity:1}
+.hbtn{width:28px;height:28px;border:none;border-radius:6px;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:rgba(0,0,0,.7);transition:background .12s;-webkit-app-region:no-drag}
+.hbtn:hover{background:rgba(0,0,0,.08)}
+.hbtn.close:hover{background:#c42b1c;color:#fff}
+.hbtn svg{width:11px;height:11px;stroke:currentColor;stroke-width:1.6;fill:none}
+.body{flex:1;position:relative;overflow:hidden}
+.textarea{width:100%;height:100%;border:none;outline:none;resize:none;background:transparent;font-size:13.5px;line-height:1.72;padding:8px 14px 14px;font-family:inherit;letter-spacing:.015em;overflow-y:auto;-webkit-app-region:no-drag}
+.textarea::placeholder{color:rgba(0,0,0,.18)}
+.textarea::-webkit-scrollbar{width:5px}
+.textarea::-webkit-scrollbar-thumb{background:rgba(0,0,0,.08);border-radius:3px}
+.textarea::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.16)}
+.color-picker{position:absolute;top:40px;left:8px;display:none;gap:5px;padding:7px 9px;background:rgba(255,255,255,.94);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-radius:9px;box-shadow:0 6px 20px rgba(0,0,0,.16),0 0 0 .5px rgba(0,0,0,.06);z-index:100;animation:popIn .15s ease;-webkit-app-region:no-drag}
+.color-picker.show{display:flex}
+.color-dot{width:20px;height:20px;border-radius:50%;cursor:pointer;border:2px solid rgba(255,255,255,.7);box-shadow:0 1px 3px rgba(0,0,0,.1);transition:transform .12s}
+.color-dot:hover{transform:scale(1.15)}
+.color-dot.active{border-color:rgba(0,0,0,.3);transform:scale(1.15)}
+.opacity-bar{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);display:none;align-items:center;gap:8px;padding:5px 12px;background:rgba(255,255,255,.94);backdrop-filter:blur(20px);border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.14);z-index:100;animation:popIn .15s ease;-webkit-app-region:no-drag}
+.opacity-bar.show{display:flex}
+.opacity-bar label{font-size:11px;color:#555;white-space:nowrap}
+.opacity-slider{-webkit-appearance:none;width:80px;height:3px;border-radius:2px;background:rgba(0,0,0,.12);outline:none}
+.opacity-slider::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.25);cursor:pointer}
+.note.minimized .body{display:none}
+.note.minimized .header{border-bottom:none}
+.note.minimized .header-right{opacity:1}
+.ctx-menu{position:fixed;z-index:1000;min-width:200px;padding:4px;background:rgba(255,255,255,.96);backdrop-filter:blur(20px);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.18);animation:popIn .12s ease;font-size:12.5px;-webkit-app-region:no-drag}
+.ctx-item{padding:6px 10px;border-radius:5px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;color:rgba(0,0,0,.82)}
+.ctx-item:hover{background:rgba(0,0,0,.06)}
+.ctx-item.danger{color:#c42b1c}
+.ctx-item.danger:hover{background:rgba(196,43,28,.08)}
+.ctx-divider{height:1px;background:rgba(0,0,0,.08);margin:3px 8px}
+@keyframes popIn{from{opacity:0;transform:scale(.93)}to{opacity:1;transform:scale(1)}}
+</style>
+</head>
+<body>
+<div class="note" id="note">
+  <div class="header" id="header">
+    <div class="header-left">
+      <div class="color-indicator" id="color-indicator" title="左键切换颜色，右键更多选项"></div>
+      <span class="meta-label" id="meta-label"></span>
+    </div>
+    <div class="header-right">
+      <button class="hbtn" id="btn-min" title="折叠/展开 (Ctrl+M)"><svg viewBox="0 0 12 12"><line x1="2" y1="6" x2="10" y2="6"></line></svg></button>
+      <button class="hbtn" id="btn-opacity" title="调整透明度">👁</button>
+      <button class="hbtn" id="btn-pin" title="置顶切换">📌</button>
+      <button class="hbtn close" id="btn-close" title="关闭便签"><svg viewBox="0 0 12 12"><line x1="2.5" y1="2.5" x2="9.5" y2="9.5"></line><line x1="9.5" y1="2.5" x2="2.5" y2="9.5"></line></svg></button>
+    </div>
+  </div>
+  <div class="color-picker" id="color-picker"></div>
+  <div class="opacity-bar" id="opacity-bar">
+    <label>透明度</label>
+    <input type="range" class="opacity-slider" id="opacity-slider" min="30" max="100" value="100">
+  </div>
+  <div class="body">
+    <textarea class="textarea" id="textarea" placeholder="输入内容..."></textarea>
+  </div>
+</div>
+
+<script>
+const COLORS=[
+  {bg:'#FFF3B0',header:'#FFE668',text:'#5C4B00',dot:'#FFD93D'},
+  {bg:'#FFD0D6',header:'#FFA0AE',text:'#6B1A2A',dot:'#FF8A9E'},
+  {bg:'#C8F0C2',header:'#8CD884',text:'#1E4518',dot:'#6CC462'},
+  {bg:'#BEE0FF',header:'#82C4F8',text:'#14355A',dot:'#5DB0F0'},
+  {bg:'#DCC8FF',header:'#B896F0',text:'#301458',dot:'#A07CE8'},
+  {bg:'#FFE0B8',header:'#FFB868',text:'#5C3300',dot:'#FFA030'},
+];
+let noteData=null;
+const api=window.electronAPI;
+
+function applyColor(idx){
+  const c=COLORS[idx];
+  document.getElementById('note').style.background=c.bg;
+  document.getElementById('header').style.background=c.header;
+  document.getElementById('textarea').style.color=c.text;
+  document.getElementById('color-indicator').style.background=c.dot;
+  document.querySelectorAll('.color-dot').forEach((d,i)=>d.classList.toggle('active',i===idx));
+}
+
+function buildColorPicker(){
+  const picker=document.getElementById('color-picker');
+  picker.innerHTML='';
+  COLORS.forEach((c,i)=>{
+    const dot=document.createElement('div');
+    dot.className='color-dot'+(i===(noteData?.colorIdx||0)?' active':'');
+    dot.style.background=c.dot;
+    dot.title=['黄色','粉色','绿色','蓝色','紫色','橙色'][i];
+    dot.onclick=()=>{noteData.colorIdx=i;applyColor(i);api.noteUpdate(noteData.id,{colorIdx:i});picker.classList.remove('show');};
+    picker.appendChild(dot);
+  });
+}
+
+function applyMinimized(min){
+  document.getElementById('note').classList.toggle('minimized',!!min);
+  const btn=document.getElementById('btn-min');
+  if(min){btn.innerHTML='<svg viewBox="0 0 12 12"><rect x="2" y="2" width="8" height="8" rx="1"></rect></svg>';btn.title='展开 (Ctrl+M)';}
+  else{btn.innerHTML='<svg viewBox="0 0 12 12"><line x1="2" y1="6" x2="10" y2="6"></line></svg>';btn.title='折叠 (Ctrl+M)';}
+}
+
+function updateMetaLabel(){
+  if(!noteData)return;
+  const title=noteData.title||'';
+  const text=noteData.text||'';
+  const summary=text.replace(/<[^>]+>/g,'').substring(0,30);
+  document.getElementById('meta-label').textContent=title||summary||'便签';
+}
+
+// ===== Context Menu (统一创建，带id防叠加) =====
+function closeAllPopups(){
+  document.getElementById('color-picker').classList.remove('show');
+  document.getElementById('opacity-bar').classList.remove('show');
+  const old=document.getElementById('ctx-menu');if(old)old.remove();
+}
+
+function showContextMenu(x,y){
+  if(!noteData)return;
+  closeAllPopups();
+  const isTop=noteData.alwaysOnTop!==false;
+  const items=[
+    {label:'新建便签',action:()=>api.createNoteWindow({})},
+    {divider:true},
+    {label:noteData.minimized?'展开便签':'折叠便签',action:()=>api.noteMinimize(noteData.id)},
+    {label:isTop?'取消置顶':'置顶显示',action:()=>{noteData.alwaysOnTop=!isTop;api.noteUpdate(noteData.id,{alwaysOnTop:noteData.alwaysOnTop});}},
+    {label:'调整透明度',action:()=>{document.getElementById('opacity-bar').classList.toggle('show');}},
+    {label:'切换颜色',action:()=>{document.getElementById('color-picker').classList.toggle('show');}},
+    {divider:true},
+    {label:'删除便签',danger:true,action:()=>api.noteClose(noteData.id)},
+  ];
+  const menu=document.createElement('div');
+  menu.id='ctx-menu';
+  menu.className='ctx-menu';
+  menu.style.cssText='left:'+x+'px;top:'+y+'px';
+  for(const item of items){
+    if(item.divider){const d=document.createElement('div');d.className='ctx-divider';menu.appendChild(d);continue;}
+    const row=document.createElement('div');
+    row.className='ctx-item'+(item.danger?' danger':'');
+    row.textContent=item.label;
+    row.onclick=()=>{closeAllPopups();item.action();};
+    menu.appendChild(row);
+  }
+  document.body.appendChild(menu);
+  const r=menu.getBoundingClientRect();
+  if(r.right>window.innerWidth)menu.style.left=(window.innerWidth-r.width-4)+'px';
+  if(r.bottom>window.innerHeight)menu.style.top=(window.innerHeight-r.height-4)+'px';
+}
+
+// ===== Init =====
+api.onInitNote((data)=>{
+  noteData=data;
+  document.getElementById('textarea').value=data.text||'';
+  document.getElementById('opacity-slider').value=Math.round((data.opacity||1)*100);
+  applyMinimized(data.minimized);
+  applyColor(data.colorIdx||0);
+  buildColorPicker();
+  updateMetaLabel();
+});
+api.onNoteMinState((p)=>{if(!noteData||p.id!==noteData.id)return;noteData.minimized=p.minimized;applyMinimized(p.minimized);});
+
+// ===== Input save =====
+let saveTimer=null;
+document.getElementById('textarea').addEventListener('input',(e)=>{
+  if(!noteData)return;
+  noteData.text=e.target.value;
+  updateMetaLabel();
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>api.noteUpdate(noteData.id,{text:noteData.text}),220);
+});
+
+// ===== Buttons =====
+document.getElementById('btn-close').addEventListener('click',(e)=>{e.stopPropagation();if(noteData)api.noteClose(noteData.id);});
+document.getElementById('btn-min').addEventListener('click',(e)=>{e.stopPropagation();if(noteData)api.noteMinimize(noteData.id);});
+document.getElementById('btn-pin').addEventListener('click',(e)=>{e.stopPropagation();if(!noteData)return;noteData.alwaysOnTop=!noteData.alwaysOnTop;api.noteUpdate(noteData.id,{alwaysOnTop:noteData.alwaysOnTop});});
+document.getElementById('btn-opacity').addEventListener('click',(e)=>{e.stopPropagation();closeAllPopups();document.getElementById('opacity-bar').classList.toggle('show');});
+
+// ===== Color indicator =====
+document.getElementById('color-indicator').addEventListener('click',(e)=>{
+  e.stopPropagation();closeAllPopups();document.getElementById('color-picker').classList.toggle('show');
+});
+document.getElementById('color-indicator').addEventListener('contextmenu',(e)=>{
+  e.preventDefault();e.stopPropagation();showContextMenu(e.clientX,e.clientY);
+});
+
+// ===== Opacity =====
+document.getElementById('opacity-slider').addEventListener('input',(e)=>{
+  if(!noteData)return;api.noteUpdate(noteData.id,{opacity:parseInt(e.target.value,10)/100});
+});
+
+// ===== Context menu on header AND textarea =====
+document.getElementById('header').addEventListener('contextmenu',(e)=>{
+  if(e.target.closest('.hbtn')||e.target.closest('#color-indicator'))return;
+  e.preventDefault();e.stopPropagation();showContextMenu(e.clientX,e.clientY);
+});
+document.getElementById('textarea').addEventListener('contextmenu',(e)=>{
+  e.preventDefault();e.stopPropagation();showContextMenu(e.clientX,e.clientY);
+});
+
+// ===== Close popups on outside click =====
+document.addEventListener('click',(e)=>{
+  if(!e.target.closest('.color-picker')&&!e.target.closest('#color-indicator'))
+    document.getElementById('color-picker').classList.remove('show');
+  if(!e.target.closest('.opacity-bar')&&!e.target.closest('#btn-opacity'))
+    document.getElementById('opacity-bar').classList.remove('show');
+  const ctx=document.getElementById('ctx-menu');
+  if(ctx&&!e.target.closest('#ctx-menu'))ctx.remove();
+});
+
+// ===== Keyboard =====
+document.addEventListener('keydown',(e)=>{
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='m'){e.preventDefault();if(noteData)api.noteMinimize(noteData.id);}
+  if(e.key==='Escape')closeAllPopups();
+});
+</script>
+</body>
+</html>

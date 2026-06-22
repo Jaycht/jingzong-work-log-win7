@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { StickyNote, Plus, Trash2, Download, Upload, X, Pen } from 'lucide-react';
+import { StickyNote, Plus, Trash2, Download, Upload, X, Pen, Pin } from 'lucide-react';
 import { Modal, Input, Select, DatePicker, Switch, Tag, Button, Table, Space } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useAppStore } from '../store/appStore';
@@ -39,6 +39,25 @@ export default function DailyNotes() {
   const [newType, setNewType] = useState('');
   const [showTypeManager, setShowTypeManager] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+
+  // 便签编辑同步：主进程推送便签内容变更 → 更新 IndexedDB
+  useEffect(() => {
+    const api = (window as any).electronAPI;
+    if (!api?.onNoteContentChanged) return;
+    api.onNoteContentChanged(({ id, text }: { id: string; text: string }) => {
+      const noteId = id.replace('sticky-', '');
+      const notes = getDailyNotes();
+      const note = notes.find((n) => n.id === noteId);
+      if (note) {
+        // 从 HTML 中提取纯文本作为内容
+        const div = document.createElement('div');
+        div.innerHTML = text;
+        const plainText = div.textContent || div.innerText || '';
+        updateDailyNote(noteId, { contents: plainText ? [plainText] : note.contents });
+        setRefreshKey((k) => k + 1);
+      }
+    });
+  }, []);
 
   const allNotes = useMemo(() => { void refreshKey; return getDailyNotes(); }, [refreshKey]);
 
@@ -127,6 +146,26 @@ export default function DailyNotes() {
 
   const handleDeleteType = (t: string) => { const next = customTypes.filter((x) => x !== t); setCustomTypes(next); saveCustomTypes(next); };
 
+  const handleOpenSticky = (rec: DailyNote) => {
+    const isElectron = typeof window !== 'undefined' && (window as any).electronAPI?.createNoteWindow;
+    if (isElectron) {
+      const content = [
+        rec.title ? `【${rec.title}】` : '',
+        rec.type ? `[${rec.type}]` : '',
+        ...(rec.contents || []),
+        rec.notes ? `\n备注：${rec.notes}` : '',
+      ].filter(Boolean).join('\n');
+      (window as any).electronAPI.createNoteWindow({
+        id: `sticky-${rec.id}`,
+        title: rec.title || '便签',
+        text: content,
+        date: rec.date,
+      });
+    } else {
+      showToast('仅桌面版支持便签功能', 'info');
+    }
+  };
+
   const columns: ColumnsType<DailyNote> = [
     {
       title: '日期', dataIndex: 'date', width: 110,
@@ -174,9 +213,10 @@ export default function DailyNotes() {
       render: (v: string) => v || '—',
     },
     {
-      title: '操作', width: 130, fixed: 'right' as const,
+      title: '操作', width: 180, fixed: 'right' as const,
       render: (_: unknown, rec: DailyNote) => (
         <Space size={4}>
+          <Button type="link" size="small" icon={<Pin size={13} />} onClick={() => handleOpenSticky(rec)}>便签</Button>
           <Button type="link" size="small" icon={<Pen size={13} />} onClick={() => setEditingNote(rec)}>编辑</Button>
           <Button type="link" size="small" danger icon={<Trash2 size={13} />} onClick={() => handleDelete(rec.id, rec.title)}>删除</Button>
         </Space>

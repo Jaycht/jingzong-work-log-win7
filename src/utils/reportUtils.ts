@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 资金分析报告生成
  * 读取 evidence-report 模块的存储数据，生成 Word 兼容格式的 .doc 文件
  */
@@ -263,7 +263,7 @@ ${conclusionNextStep ? `
     </div>
   </div>
   <div style="text-align: center; font-size: 12px; color: #999; margin-top: 30px;">
-    本报告由经侦大队工作记录管理系统-Win7版自动生成
+    本报告由经侦大队工作记录管理系统-Win7版-Win7版自动生成
   </div>
 </div>
 

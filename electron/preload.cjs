@@ -54,4 +54,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   notifDismiss: (noteId) => ipcRenderer.send('notif-dismiss', noteId),
   onReminderSnoozed: (callback) => ipcRenderer.on('reminder-snoozed', (_event, data) => callback(data)),
   onReminderDismissed: (callback) => ipcRenderer.on('reminder-dismissed', (_event, data) => callback(data)),
+
+  // 桌面便签
+  createNoteWindow: (noteData) => ipcRenderer.invoke('create-note-window', noteData),
+  noteUpdate: (id, updates) => ipcRenderer.send('note-update', { id, updates }),
+  noteDrag: (id, dx, dy) => ipcRenderer.send('note-drag', { id, dx, dy }),
+  noteMinimize: (id) => ipcRenderer.send('note-minimize', { id }),
+  noteClose: (id) => ipcRenderer.send('note-close', { id }),
+  noteCopyText: (text) => ipcRenderer.send('note-copy-text', { text }),
+  onInitNote: (callback) => ipcRenderer.on('init-note', (_event, data) => callback(data)),
+  onNoteClosed: (callback) => ipcRenderer.on('note-closed', (_event, data) => callback(data)),
+  onNoteContentChanged: (callback) => ipcRenderer.on('note-content-changed', (_event, data) => callback(data)),
+  onNoteMinState: (callback) => ipcRenderer.on('note-minimize-state', (_event, data) => callback(data)),
 });
