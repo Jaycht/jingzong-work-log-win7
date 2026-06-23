@@ -360,7 +360,7 @@ function createNotifWindow(title, body, soundFile, noteId) {
     },
   });
 
-  notifWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  try { notifWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch {}
 
   const notifPath = path.join(__dirname, "notification.html");
   notifWin.loadFile(notifPath, { search: params.toString() });
@@ -440,7 +440,7 @@ function createNoteWindow(noteData) {
     },
   });
 
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch {} // Electron 22 兼容
   win.setAlwaysOnTop(true, "floating");
   win.loadFile(path.join(__dirname, "note.html"));
 
@@ -493,20 +493,6 @@ ipcMain.on("note-update", (event, { id, updates }) => {
   if (updates.text !== undefined && mainWindow && mainWindow.webContents) {
     mainWindow.webContents.send("note-content-changed", { id, text: updates.text });
   }
-});
-
-ipcMain.on("note-drag", (event, { id, dx, dy }) => {
-  const entry = noteWindows.get(id);
-  if (!entry || entry.win.isDestroyed()) return;
-  const [x, y] = entry.win.getPosition();
-  entry.win.setPosition(x + dx, y + dy, false);
-});
-
-ipcMain.on("note-drag", (event, { id, dx, dy }) => {
-  const entry = noteWindows.get(id);
-  if (!entry || entry.win.isDestroyed()) return;
-  const [x, y] = entry.win.getPosition();
-  entry.win.setPosition(x + dx, y + dy, false);
 });
 
 ipcMain.on("note-minimize", (event, { id }) => {
