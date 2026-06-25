@@ -1,7 +1,7 @@
 {
   "name": "jingzong-work-log-win7",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "经侦大队工作记录管理系统-Win7版",
   "author": "陈洪涛",
   "license": "MIT",
@@ -33,10 +33,9 @@
       "artifactName": "${productName}-V${version}-${arch}.${ext}",
       "target": [
         {
-          "target": "nsis",
+          "target": "portable",
           "arch": [
-            "x64",
-            "ia32"
+            "x64"
           ]
         }
       ]
