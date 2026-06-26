@@ -1,7 +1,7 @@
-export const APP_VERSION = "V1.0.5";
+export const APP_VERSION = "V1.0.6";
 export const VERSION_MAJOR = 1;
 export const VERSION_MINOR = 0;
-export const VERSION_PATCH = 5;
+export const VERSION_PATCH = 6;
 
 export const CHANGELOG: string[] = [
   // ===== V1.0.3 =====
