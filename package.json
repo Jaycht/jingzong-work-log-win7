@@ -1,7 +1,7 @@
 {
   "name": "jingzong-work-log-win7",
   "private": true,
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "经侦大队工作记录管理系统-Win7版",
   "author": "陈洪涛",
   "license": "MIT",
@@ -39,18 +39,6 @@
           ]
         }
       ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "perMachine": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "经侦大队工作记录管理系统-Win7版",
-      "installerIcon": "app.ico",
-      "uninstallerIcon": "app.ico",
-      "installerHeaderIcon": "app.ico",
-      "include": "build/installer.nsh"
     }
   },
   "dependencies": {
@@ -80,8 +68,8 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^9.2.1",
-    "electron": "^35.7.5",
-    "electron-builder": "^25.1.8",
+    "electron": "^22.3.27",
+    "electron-builder": "^24.13.3",
     "electron-packager": "^17.1.2",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
