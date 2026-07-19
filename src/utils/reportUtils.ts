@@ -3,9 +3,10 @@
  * 读取 evidence-report 模块的存储数据，生成 Word 兼容格式的 .doc 文件
  */
 
-import { saveAs } from 'file-saver';
+import { buildDocReport } from './docReport';
 import { getMassRecords } from '../store/massStore';
 import { formatDateValue, safeHtml } from './htmlUtils';
+import { formatChineseDate } from './format';
 
 const MODULE_ID = 'evidence-report';
 type ReportData = Record<string, unknown>;
@@ -35,10 +36,8 @@ export function generateFundReport(recordId?: string): void {
   const html = buildReportHtml(data);
 
   // 保存为 .doc（Word 可打开）
-  const bom = '\uFEFF';
-  const blob = new Blob([bom + html], { type: 'application/msword;charset=utf-8' });
   const caseName = String(data.caseName || '资金分析报告').replace(/[/\\?*[\]]/g, '_');
-  saveAs(blob, `${caseName}_资金分析报告.doc`);
+  buildDocReport(html, `${caseName}_资金分析报告.doc`);
 }
 
 function buildReportHtml(data: ReportData): string {
@@ -125,8 +124,7 @@ function buildReportHtml(data: ReportData): string {
   const conclusionDeepClue = safeHtml(data.conclusionDeepClue, '');
   const conclusionNextStep = safeHtml(data.conclusionNextStep, '');
 
-  const now = new Date();
-  const dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
+  const dateStr = formatChineseDate(new Date());
 
   return `<!DOCTYPE html>
 <html xmlns:o='urn:schemas-microsoft-com:office:office'
@@ -263,7 +261,7 @@ ${conclusionNextStep ? `
     </div>
   </div>
   <div style="text-align: center; font-size: 12px; color: #999; margin-top: 30px;">
-    本报告由经侦大队工作记录管理系统-Win7版-Win7版自动生成
+    本报告由经侦大队工作记录管理系统自动生成
   </div>
 </div>
 

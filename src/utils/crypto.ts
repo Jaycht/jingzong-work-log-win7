@@ -4,9 +4,6 @@
  * 兼容旧版明文密码（通过格式检测自动判断）
  */
 
-/** SHA-256 哈希长度为 64 位十六进制字符 */
-const HASH_LEN = 64;
-
 /** 判断是否为 SHA-256 哈希字符串 */
 function isHashString(s: string): boolean {
   return /^[0-9a-f]{64}$/i.test(s);

@@ -2,6 +2,8 @@ const { app, BrowserWindow, ipcMain, Menu, dialog, shell, Tray, nativeImage, Not
 const path = require("path");
 const fs = require("fs");
 const fsp = require("fs/promises");
+// 内联图标 base64（避免打包后 app.ico 在 asar 内外落点错乱导致托盘不显示，V2.41.20 修复 #1）
+const APP_ICO_BASE64 = require("./app-icon.cjs");
 
 const isDev = !app.isPackaged;
 let mainWindow = null;
@@ -13,7 +15,7 @@ app.setAppUserModelId("com.jingzong.worklog");
 // 允许 Audio.play() 无需用户手势（提醒声音播放）
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
-// Win7版：不支持自动更新
+
 
 // 窗口尺寸常量
 const LOGIN_SIZE = { width: 974, height: 711 };
@@ -47,7 +49,43 @@ function getAttachmentsDir() {
   return path.join(app.getPath("userData"), "attachments");
 }
 
-const ATTACHMENTS_DIR = getAttachmentsDir();
+// ======================== 应用图标解析 ========================
+// 生产环境下 app.ico 通过 electron-builder 的 extraResources 放到 asar 外（resources/app.ico），
+// 直接 path.join(__dirname,'..','app.ico') 在 asar 内会指向不存在的 resources/app.asar/app.ico，
+// 导致 new Tray() 抛错而中断 createTray，进而关闭处理器无法注册。这里做多级兜底解析。
+function resolveAppIcon() {
+  // 首选：内联 base64 图标，彻底摆脱打包后 app.ico 在 asar 内外落点错乱的问题（V2.41.20 修复 #1）
+  try {
+    const buf = Buffer.from(APP_ICO_BASE64, "base64");
+    const img = nativeImage.createFromBuffer(buf);
+    if (!img.isEmpty()) return img;
+  } catch (e) {
+    console.error("[icon] 内联 base64 图标解析失败：", e);
+  }
+  // 兜底：外部 resources/app.ico（extraResources）与 asar 内 app.ico
+  const candidates = app.isPackaged
+    ? [path.join(process.resourcesPath, "app.ico"), path.join(__dirname, "..", "app.ico")]
+    : [path.join(__dirname, "..", "app.ico")];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        const img = nativeImage.createFromPath(p);
+        if (!img.isEmpty()) return img;
+      }
+    } catch {}
+  }
+  try {
+    const asarPath = path.join(__dirname, "..", "app.ico");
+    if (fs.existsSync(asarPath)) {
+      return nativeImage.createFromBuffer(fs.readFileSync(asarPath));
+    }
+  } catch {}
+  return nativeImage.createEmpty();
+}
+
+let attachmentsDir = getAttachmentsDir();
+// 历史附件目录集合：切换路径后旧目录仍允许读取，避免旧附件打不开（数据安全）
+const allowedAttachmentDirs = new Set([attachmentsDir]);
 
 // 保存附件路径配置
 function savePathConfig(key, value) {
@@ -79,7 +117,7 @@ function createWindow() {
     resizable: true,
     frame: false,
     backgroundColor: "#0B0F1A",
-    icon: path.join(__dirname, "..", "app.ico"),
+    icon: resolveAppIcon(),
     show: false,
     title: "经侦大队工作记录管理系统",
     webPreferences: {
@@ -88,6 +126,9 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
+
+  // 关闭行为处理器：无条件注册，不再依赖 createTray 是否成功（V2.41.17 修复 #2）
+  registerCloseHandler(mainWindow);
 
   mainWindow.center();
 
@@ -155,7 +196,7 @@ ipcMain.on("window-close", (event) => {
 ipcMain.handle("save-attachment-file", async (_event, { buffer, fileName, moduleId }) => {
   try {
     const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${fileName.replace(/[<>:"/\\|?*]/g, "_")}`;
-    const filePath = path.join(ATTACHMENTS_DIR, safeName);
+    const filePath = path.join(attachmentsDir, safeName);
     await fsp.writeFile(filePath, Buffer.from(buffer));
     return { success: true, filePath };
   } catch (err) {
@@ -166,10 +207,11 @@ ipcMain.handle("save-attachment-file", async (_event, { buffer, fileName, module
 /** 校验路径位于附件目录下，防止渲染进程访问任意磁盘文件 */
 function safePath(filePath) {
   const resolved = path.resolve(filePath);
-  if (!resolved.startsWith(path.resolve(ATTACHMENTS_DIR))) {
-    throw new Error('Access denied: path outside attachments directory');
+  // 允许当前目录及所有历史目录（切换路径前的旧附件仍可读取）
+  for (const dir of allowedAttachmentDirs) {
+    if (resolved.startsWith(path.resolve(dir))) return resolved;
   }
-  return resolved;
+  throw new Error('Access denied: path outside attachments directory');
 }
 
 // 附件文件操作 — 从硬盘读取文件
@@ -197,16 +239,19 @@ ipcMain.handle("delete-attachment-file", async (_event, filePath) => {
 
 // 获取附件目录路径
 ipcMain.handle("get-attachments-dir", () => {
-  return ATTACHMENTS_DIR;
+  return attachmentsDir;
 });
 
 // 获取/设置附件保存路径（用户可自定义）
 ipcMain.handle("get-attachments-path", () => {
-  return getPathConfig("attachmentsDir") || ATTACHMENTS_DIR;
+  return getPathConfig("attachmentsDir") || attachmentsDir;
 });
 
 ipcMain.handle("set-attachments-path", (_event, newPath) => {
   if (newPath && fs.existsSync(newPath)) {
+    allowedAttachmentDirs.add(attachmentsDir); // 旧目录仍允许读取，避免旧附件打不开
+    attachmentsDir = newPath;
+    allowedAttachmentDirs.add(newPath);
     savePathConfig("attachmentsDir", newPath);
     return { success: true, path: newPath };
   }
@@ -270,10 +315,87 @@ ipcMain.handle("show-save-dialog", async (_event, { defaultName, buffer }) => {
   }
 });
 
+// ======================== 关闭窗口行为 ========================
+// 关闭窗口行为：'exit' 直接退出 | 'tray' 最小化到托盘 | 'ask' 弹窗询问
+// 默认改为 'ask'（每次询问），与系统设置默认项一致（V2.41.19 修复 #4）
+let appCloseBehavior = 'ask';
+
+ipcMain.on('set-close-behavior', (_event, behavior) => {
+  if (behavior === 'exit' || behavior === 'tray' || behavior === 'ask') {
+    appCloseBehavior = behavior;
+  }
+});
+
+// ======================== 关闭行为 ========================
+// 窗口关闭处理器：独立于托盘创建，无论托盘是否可用都会注册（V2.41.17 修复 #2）
+function registerCloseHandler(win) {
+  if (!win) return;
+  win.on("close", (e) => {
+    if (app.isQuitting) return;
+    e.preventDefault();
+
+    const doQuit = () => {
+      app.isQuitting = true;
+      if (win && win.webContents) {
+        win.webContents.send("trigger-quit-backup");
+        setTimeout(() => { app.quit(); }, 3000);
+      } else {
+        app.quit();
+      }
+    };
+
+    if (appCloseBehavior === 'exit') {
+      doQuit();
+    } else if (appCloseBehavior === 'ask') {
+      const { dialog } = require('electron');
+      const choice = dialog.showMessageBoxSync(win, {
+        type: 'question',
+        buttons: ['最小化到托盘', '退出软件'],
+        defaultId: 0,
+        cancelId: 0,
+        title: '关闭程序',
+        message: '您希望如何关闭本程序？',
+        detail: '选择「最小化到托盘」可保留后台运行，双击托盘图标恢复。',
+        noLink: true,
+      });
+      if (choice === 1) {
+        doQuit();
+      } else {
+        win.hide();
+      }
+    } else {
+      // 默认 'tray'：托盘可用则最小化到托盘；托盘缺失（极罕见）则直接退出，避免无窗无托盘的孤儿进程
+      if (tray) {
+        win.hide();
+      } else {
+        doQuit();
+      }
+    }
+  });
+}
+
 // ======================== 托盘功能 ========================
 function createTray() {
-  const iconPath = path.join(__dirname, "..", "app.ico");
-  tray = new Tray(iconPath);
+  try {
+    const base = resolveAppIcon();
+    if (base.isEmpty()) {
+      console.error('[tray] 未找到有效的托盘图标资源，将不启用托盘');
+      tray = null;
+      return;
+    }
+    // Windows 系统托盘需要 16/32px 尺寸图标：源 app.ico 多为 256/128px，
+    // 若缺小尺寸会被系统忽略导致托盘不显示。这里从源图缩放为 32x32 保证可见（V2.41.19 修复 #1）
+    let trayIcon = base;
+    try {
+      const r = base.resize({ width: 32, height: 32 });
+      if (!r.isEmpty()) trayIcon = r;
+    } catch {}
+    tray = new Tray(trayIcon);
+  } catch (err) {
+    console.error('[tray] 创建托盘图标失败，将不启用托盘：', err);
+    tray = null;
+    return;
+  }
   tray.setToolTip("经侦大队工作记录管理系统");
 
   const contextMenu = Menu.buildFromTemplate([
@@ -300,16 +422,6 @@ function createTray() {
       mainWindow.focus();
     }
   });
-
-  // 窗口关闭时最小化到托盘
-  if (mainWindow) {
-    mainWindow.on("close", (e) => {
-      if (!app.isQuitting) {
-        e.preventDefault();
-        mainWindow.hide();
-      }
-    });
-  }
 }
 
 // ======================== 开机自启 ========================
@@ -326,19 +438,27 @@ ipcMain.handle("set-auto-start", (_event, enabled) => {
 // 创建独立浮动通知窗口（桌面右下角，不在主窗口内）
 let notifWindows = [];
 
-function createNotifWindow(title, body, soundFile, noteId) {
+function createNotifWindow(title, body, soundFile, noteId, extra) {
   const { screen } = require("electron");
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenW, height: screenH } = primaryDisplay.workAreaSize;
 
   const notifWidth = 400;
-  const notifHeight = 160;
+  const notifHeight = 196;
   const gap = 16;
   const index = notifWindows.length;
   const x = screenW - notifWidth - gap;
   const y = screenH - notifHeight - gap - index * (notifHeight + gap);
 
-  const params = new URLSearchParams({ title, body, sound: soundFile || "", noteId: noteId || "" });
+  const params = new URLSearchParams({
+    title,
+    body,
+    sound: soundFile || "",
+    noteId: noteId || "",
+    type: (extra && extra.type) || "",
+    priority: (extra && extra.priority) || "",
+    date: (extra && extra.date) || "",
+  });
 
   const notifWin = new BrowserWindow({
     width: notifWidth,
@@ -346,7 +466,7 @@ function createNotifWindow(title, body, soundFile, noteId) {
     x: Math.max(0, x),
     y: Math.max(0, y),
     frame: false,
-    transparent: true,
+    transparent: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
@@ -360,7 +480,7 @@ function createNotifWindow(title, body, soundFile, noteId) {
     },
   });
 
-  try { notifWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch {}
+  notifWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   const notifPath = path.join(__dirname, "notification.html");
   notifWin.loadFile(notifPath, { search: params.toString() });
@@ -371,14 +491,14 @@ function createNotifWindow(title, body, soundFile, noteId) {
     notifWindows = notifWindows.filter((w) => w !== notifWin);
   });
 
-  // 10秒后自动关闭
+  // 12秒后自动关闭
   setTimeout(() => {
     if (!notifWin.isDestroyed()) notifWin.close();
   }, 12000);
 }
 
-ipcMain.handle("show-reminder", (_event, { title, body, soundFile, noteId }) => {
-  createNotifWindow(title, body, soundFile, noteId);
+ipcMain.handle("show-reminder", (_event, { title, body, soundFile, noteId, extra }) => {
+  createNotifWindow(title, body, soundFile, noteId, extra);
   return { shown: true };
 });
 
@@ -431,7 +551,7 @@ function createNoteWindow(noteData) {
 
   const win = new BrowserWindow({
     x: data.x, y: data.y, width: data.w, height: data.h,
-    frame: false, transparent: true, alwaysOnTop: true,
+    frame: false, transparent: false, backgroundColor: "#F1F2F4", alwaysOnTop: true,
     skipTaskbar: true, hasShadow: false,
     resizable: true, minWidth: 200, minHeight: 100,
     webPreferences: {
@@ -440,7 +560,7 @@ function createNoteWindow(noteData) {
     },
   });
 
-  try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch {} // Electron 22 兼容
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.setAlwaysOnTop(true, "floating");
   win.loadFile(path.join(__dirname, "note.html"));
 
@@ -495,6 +615,13 @@ ipcMain.on("note-update", (event, { id, updates }) => {
   }
 });
 
+ipcMain.on("note-drag", (event, { id, dx, dy }) => {
+  const entry = noteWindows.get(id);
+  if (!entry || entry.win.isDestroyed()) return;
+  const [x, y] = entry.win.getPosition();
+  entry.win.setPosition(x + dx, y + dy, false);
+});
+
 ipcMain.on("note-minimize", (event, { id }) => {
   const entry = noteWindows.get(id);
   if (!entry || entry.win.isDestroyed()) return;
@@ -530,14 +657,28 @@ ipcMain.on("note-copy-text", (_event, { text }) => {
 });
 
 // ======================== 启动逻辑 ========================
-app.whenReady().then(() => {
-  // 确保附件目录存在
-  if (!fs.existsSync(ATTACHMENTS_DIR)) {
-    fs.mkdirSync(ATTACHMENTS_DIR, { recursive: true });
-  }
-  createWindow();
-  createTray();
-});
+// 单实例锁：防止重复启动多个进程（多实例会抢占资源、拖慢启动，V2.41.17 修复 #5）
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  app.whenReady().then(() => {
+    // 确保附件目录存在
+    if (!fs.existsSync(attachmentsDir)) {
+      fs.mkdirSync(attachmentsDir, { recursive: true });
+    }
+    createWindow();
+    createTray();
+  });
+}
 
 app.on("window-all-closed", () => {
   // 不关闭，保持在托盘

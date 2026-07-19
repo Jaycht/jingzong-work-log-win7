@@ -1,36 +1,43 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button, DatePicker, Form, Input, InputNumber,
-  Modal, Select, Space, Upload,
+  Modal, Radio, Select, Space, Tag, Upload, App,
+  type FormInstance, type UploadFile,
 } from 'antd';
 import dayjs from 'dayjs';
 import { InboxOutlined, PlusOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 
 import { useUnsavedChanges } from '../utils/useUnsavedChanges';
+import badgeIcon from '../assets/badge-icon.png';
 import { useAppStore } from '../store/appStore';
 import { findModule, filterVisibleFields, type FieldDefinition } from '../moduleConfig';
+import { REQUEST_CASE_INFO, REQUEST_CLUE_INFO } from '../moduleConfig/fields/evidence';
 import { useCustomModules } from '../customModules';
 import { saveMassRecord, updateMassRecord, getMassRecords } from '../store/massStore';
 import ErrorBoundary from './ErrorBoundary';
-import { recordFormFields, rebuildCaseIndex, rebuildSuspectIndex, getFieldHistory } from '../store/inputHistoryStore';
+import { recordFormFields, rebuildCaseIndex, rebuildSuspectIndex } from '../store/inputHistoryStore';
 import {
   GlobalCaseNameField, GlobalCaseNoField, GlobalSuspectField,
+  GlobalHistoryField, GlobalClueNoField,
   InputWithHistory,
-  MultiPersonField, PersistedSelect, DeviceBrandField, HolderAutoComplete,
+  MultiPersonField, PersistedSelect, DeviceBrandField,
   IdNoField,
 } from './SharedFormFields';
 import { saveAttachment, relinkAttachment, getAttachment } from '../store/attachmentStore';
+import { ATTACHMENT_CATEGORIES } from '../constants/attachmentCategories';
 import { saveDraft, getDraft, deleteDraft } from '../store/draftStore';
 
 interface Props { onClose: () => void; editRecord?: import('../store/massStore').MassRecord | null; }
 
 export default function DrawerNewRecord({ onClose, editRecord }: Props) {
+  const { modal } = App.useApp();
   useUnsavedChanges(true);
   
     const currentPage = useAppStore((s) => s.currentPage);
   const showToast = useAppStore((s) => s.showToast);
   const currentTabId = useAppStore((s) => s.currentTabId);
   const userRole = useAppStore((s) => s.userRole);
+  const darkMode = useAppStore((s) => s.darkMode);
   const { allModules } = useCustomModules();
   const currentModule = useMemo(() => findModule(currentPage, allModules), [allModules, currentPage]);
   const [selectedModuleId, setSelectedModuleId] = useState(
@@ -46,6 +53,11 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
   const [saving, setSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
+  const [formKey, setFormKey] = useState(0);
+  // 调证登记：案件调证 / 线索调证 模式（仅 evidence-request 生效）
+  const [requestMode, setRequestMode] = useState<'case' | 'clue'>(() =>
+    editRecord?.data?.clueNo ? 'clue' : 'case'
+  );
   const [form] = Form.useForm();
   // 组件挂载跟踪，防止卸载后 setState
   const mountedRef = useRef(true);
@@ -58,7 +70,18 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
 
   const selectedModule = findModule(selectedModuleId, allModules) || allModules[0];
   const selectedTab = selectedModule?.tabs.find((tab) => tab.id === selectedTabId) || selectedModule?.tabs[0];
-  const allFields = useMemo(() => filterVisibleFields(selectedTab?.fields ?? [], userRole), [selectedTab, userRole]);
+  const allFields = useMemo(() => {
+    const base = filterVisibleFields(selectedTab?.fields ?? [], userRole);
+    if (selectedModuleId !== 'evidence-request') return base;
+    // 按调证模式替换首段（线索/案件信息）字段
+    const firstIdx = base.findIndex((f) => f.type === 'section');
+    if (firstIdx === -1) return base;
+    const nextIdx = base.findIndex((f, i) => i > firstIdx && f.type === 'section');
+    const before = base.slice(0, firstIdx + 1);
+    const after = nextIdx === -1 ? [] : base.slice(nextIdx);
+    const info = requestMode === 'clue' ? REQUEST_CLUE_INFO : REQUEST_CASE_INFO;
+    return [...before, ...info, ...after];
+  }, [selectedTab, userRole, selectedModuleId, requestMode]);
 
   // Build steps from section fields
   const steps = useMemo(() => {
@@ -85,17 +108,16 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
   // flatMode：基本信息 + 一个 repeatable section 不分步，内容同时渲染在同一页
   // 排除中队案件管理（squad-case），它需要明确的步骤1/步骤2分隔
   const isSquadCase = currentPage === 'squad-case';
+  const isEvidenceRequest = selectedModuleId === 'evidence-request';
   const flatMode = steps.length === 2 && steps[1].repeatable && !isSquadCase;
   const hasSections = flatMode ? false : steps.length > 1;
   const totalSteps = steps.length;
   const currentStepMeta = steps[currentStep];
   const stepFields = currentStepMeta?.fields || [];
-  const stepRepeatable = currentStepMeta?.repeatable ?? false;
-  const stepListName = currentStepMeta?.listName || 'items';
 
   const handleClose = () => {
     if (isDirty) {
-      Modal.confirm({
+      modal.confirm({
         title: '信息未保存',
         content: '您填写的记录信息尚未保存，确定要退出吗？',
         okText: '确定退出',
@@ -116,12 +138,32 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
     setSelectedTabId(nextModule?.tabs[0]?.id || '');
     form.resetFields();
     safeSetDirty(false);
+    setRequestMode('case');
     setCurrentStep(0);
   };
 
-  const handleSubmit = async () => {
+  // 调证登记：案件调证 / 线索调证 切换
+  const handleModeChange = (mode: 'case' | 'clue') => {
+    if (mode === requestMode) return;
+    // 切换模式不再清空已填值：两侧字段在表单中保留（编辑体验），仅确保进入线索模式时编号有 XS- 默认前缀
+    const patch: Record<string, unknown> = {};
+    if (mode === 'clue' && !form.getFieldValue('clueNo')) patch.clueNo = 'XS-';
+    form.setFieldsValue(patch);
+    setRequestMode(mode);
+    safeSetDirty(true);
+  };
+
+  const handleSubmit = async (keepOpen = false) => {
     try {
       const values = await form.validateFields();
+
+      // 调证登记：仅保留当前模式的前四项，避免案件/线索两套字段同时入库（切换不清空只影响编辑体验）
+      if (isEvidenceRequest) {
+        const inactiveModeKeys = requestMode === 'case'
+          ? ['clueNo', 'clueName', 'clueSource', 'clueType']
+          : ['caseNo', 'caseName', 'caseSource', 'caseType'];
+        for (const k of inactiveModeKeys) delete values[k];
+      }
 
       // 序列化 dayjs 对象为 ISO 字符串，避免传入 IndexedDB 后触发 antd clone 崩溃
       for (const key of Object.keys(values)) {
@@ -131,12 +173,15 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
         }
         // 处理 repeatable section 中的 dayjs 对象
         if (Array.isArray(v)) {
-          v.forEach((item: any) => {
+          v.forEach((item: Record<string, unknown>) => {
             if (item && typeof item === 'object') {
               for (const k of Object.keys(item)) {
                 const val = item[k];
-                if (val && typeof val === 'object' && val.$L !== undefined && val.$d !== undefined) {
-                  item[k] = (typeof val.isValid === 'function' && val.isValid()) ? val.toISOString() : String(val.$d);
+                if (val && typeof val === 'object') {
+                  const dv = val as { $L?: unknown; $d?: unknown; isValid?: () => boolean; toISOString?: () => string };
+                  if (dv.$L !== undefined && dv.$d !== undefined) {
+                    item[k] = (dv.isValid && dv.isValid()) ? dv.toISOString!() : String(dv.$d);
+                  }
                 }
               }
             }
@@ -184,12 +229,23 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
           pendingAttachments.current.clear();
           setTimeout(() => {
             safeSetSaving(false);
-            safeSetDirty(false);
-            deleteDraft(selectedModuleId, selectedTabId);
-            showToast(`${selectedModule?.label} · ${selectedTab?.label || '记录'} 已创建`, 'success');
             // 重建案件索引
             rebuildCaseIndex(getMassRecords());
             rebuildSuspectIndex(getMassRecords());
+            if (keepOpen) {
+              // 再建一条：重置为新空白表单，留在弹窗内继续录入
+              safeSetDirty(false);
+              deleteDraft(selectedModuleId, selectedTabId);
+              form.resetFields();
+              setCurrentStep(0);
+              pendingAttachments.current.clear();
+              setFormKey((k) => k + 1); // 重挂表单，重置附件子组件状态
+              showToast('已创建，可继续录入下一条', 'success');
+              return;
+            }
+            safeSetDirty(false);
+            deleteDraft(selectedModuleId, selectedTabId);
+            showToast(`${selectedModule?.label} · ${selectedTab?.label || '记录'} 已创建`, 'success');
             onClose();
           }, 300);
         }
@@ -226,12 +282,13 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
                     if (typeof raw === 'string') {
                       const d = dayjs(raw);
                       if (d.isValid()) copy[df.id] = d;
-                    } else if (raw && typeof raw === 'object' && (raw as any).$d) {
-                      // dayjs 对象：转为真正 dayjs 实例
-                      try {
-                        const dateVal = (raw as any).$d instanceof Date ? (raw as any).$d : new Date(String((raw as any).$d));
+                    } else if (raw && typeof raw === 'object') {
+                      // dayjs 对象（含 $d）或 { $d: ... } 形状：转为真正 dayjs 实例
+                      const maybeDayjs = raw as { $d?: unknown };
+                      if (maybeDayjs.$d != null) {
+                        const dateVal = maybeDayjs.$d instanceof Date ? maybeDayjs.$d : new Date(String(maybeDayjs.$d));
                         if (!isNaN(dateVal.getTime())) copy[df.id] = dayjs(dateVal);
-                      } catch { /* ignore */ }
+                      }
                     }
                   }
                 }
@@ -249,7 +306,7 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
             if (f.type === 'attachment') {
               // 附件字段：只保留 uid/name/status，避免 AntD Upload 调用 clone 报错
               const rawArr = Array.isArray(raw) ? raw : [];
-              formData[f.id] = rawArr.map((item: any) => ({
+              formData[f.id] = rawArr.map((item: { uid?: string | number; id?: string | number; name?: string; fileName?: string }) => ({
                 uid: item?.uid || item?.id || String(Math.random()),
                 name: item?.name || item?.fileName || '附件',
                 status: 'done',
@@ -334,12 +391,12 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
   }, [selectedModuleId, selectedTabId, editRecord]);
 
   // 自动保存草稿：表单变化后 2 秒自动保存到 IndexedDB
-  const draftTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  const changeCountRef = useRef(0);
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // 用 state 计数器（而非 ref）作为 effect 依赖，确保每次表单变化都能触发自动保存
+  const [changeCount, setChangeCount] = useState(0);
   useEffect(() => {
     if (isEditing) return;
-    const count = changeCountRef.current;
-    if (count === 0) return;
+    if (changeCount === 0) return;
     const checkAndSave = () => {
       if (!mountedRef.current) return;
       const values = form.getFieldsValue();
@@ -353,7 +410,7 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
     clearTimeout(draftTimerRef.current);
     draftTimerRef.current = setTimeout(checkAndSave, 2000);
     return () => clearTimeout(draftTimerRef.current);
-  }, [changeCountRef.current, selectedModuleId, selectedTabId, currentStep, isEditing, form]);
+  }, [changeCount, selectedModuleId, selectedTabId, currentStep, isEditing, form]);
 
   // 恢复草稿提示
   useEffect(() => {
@@ -362,7 +419,7 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
       if (!mountedRef.current) return;
       const draft = getDraft(selectedModuleId, selectedTabId);
       if (draft && Object.keys(draft.data).length > 0) {
-        Modal.confirm({
+        modal.confirm({
           title: '发现未保存的草稿',
           content: `上次在 ${new Date(draft.savedAt).toLocaleString('zh-CN')} 自动保存了草稿，是否恢复？`,
           okText: '恢复草稿',
@@ -395,16 +452,17 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
     <Modal
       open
       width={960}
-      closable
+      closable={false}
       maskClosable={false}
       onCancel={handleClose}
       centered
-      title={
-        <span style={{ fontWeight: 700, fontSize: 16 }}>
-          {isEditing ? '编辑工作记录' : '新建工作记录'} · {selectedModule?.label}
-        </span>
-      }
-      styles={{ body: { height: '72vh', overflow: 'auto', padding: 0 } }}
+      title={null}
+      className="drawer-new-record-modal"
+      classNames={{ container: 'dnr-modal-container' }}
+      styles={{
+        body: { height: '72vh', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column' },
+        footer: { padding: '12px 24px 24px', margin: 0 },
+      }}
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Space>
@@ -417,15 +475,27 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
               </Button>
             )}
             {(flatMode || isLastStep) ? (
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                loading={saving}
-                onClick={handleSubmit}
-                style={{ height: 36, paddingInline: 20 }}
-              >
-                创建记录
-              </Button>
+              <>
+                {!isEditing && (
+                  <Button
+                    icon={<PlusOutlined />}
+                    loading={saving}
+                    onClick={() => handleSubmit(true)}
+                    style={{ height: 36, paddingInline: 16 }}
+                  >
+                    再建一条
+                  </Button>
+                )}
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  loading={saving}
+                  onClick={() => handleSubmit(false)}
+                  style={{ height: 36, paddingInline: 20 }}
+                >
+                  {isEditing ? '保存修改' : '创建记录'}
+                </Button>
+              </>
             ) : (
               <Button
                 type="primary"
@@ -440,81 +510,103 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
         </div>
       }
     >
-      {/* ===== Top step indicator ===== */}
-      {hasSections && (
-        <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
-          {steps.map((step, i) => {
-            const active = i === currentStep;
-            const done = i < currentStep;
-            return (
-              <div
-                key={i}
-                onClick={() => setCurrentStep(i)}
-                style={{
-                  flex: 1, padding: '8px 12px', borderRadius: 6, cursor: 'pointer',
-                  textAlign: 'center', fontSize: 13,
-                  background: active ? '#E6F1F8' : done ? '#E8F5E9' : '#F8FAFC',
-                  color: active ? '#155A8A' : done ? '#138A63' : '#94A3B8',
-                  fontWeight: active ? 700 : 400,
-                  border: active ? '1px solid #155A8A' : '1px solid transparent',
-                  transition: 'all .15s',
-                }}
-              >
-                <div style={{ fontSize: 11, opacity: 0.7 }}>
-                  {done ? '✓ ' : ''}步骤 {i + 1}
-                </div>
-                <div style={{ marginTop: 2 }}>{step.label}</div>
-              </div>
-            );
-          })}
+      {/* ===== 蓝渐变头部横幅（铺满标题到基本信息上方） ===== */}
+      <div style={{ flexShrink: 0, borderRadius: '8px 8px 0 0', background: darkMode ? 'linear-gradient(to bottom,#13325c,#1d4ed8)' : 'linear-gradient(to bottom,#155A8A,#2563EB)', padding: '16px 24px 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#fff', fontWeight: 700, fontSize: 17, letterSpacing: '-0.01em' }}>
+            <img src={badgeIcon} alt="" style={{ width: 56, height: 56, objectFit: 'contain', flexShrink: 0, filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.35))' }} />
+            {isEditing ? '编辑工作记录' : '新建工作记录'} · {selectedModule?.label}
+          </div>
+          <button
+            type="button"
+            onClick={handleClose}
+            title="关闭"
+            style={{ width: 32, height: 32, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', background: 'rgba(255,255,255,0.14)', border: 'none', color: '#fff', fontSize: 18, lineHeight: 1, flexShrink: 0 }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.26)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)'; }}
+          >
+            ×
+          </button>
         </div>
-      )}
-      <div style={{ overflow: 'auto', padding: '0 24px 16px' }}>
-        {/* Module/Template selector */}
-            <div style={{
-              background: '#F6F8FB', border: '1px solid #D8E1EA', borderRadius: 8,
-              padding: 14, marginBottom: 20,
-            }}>
-              <div style={{ fontSize: 13, color: '#64748B', marginBottom: 6 }}>
-                {selectedModule?.departmentLabel} · {selectedModule?.label} · {selectedTab?.label}
-              </div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#172033', marginBottom: 8 }}>
-                {flatMode ? `${steps[0]?.label} · ${steps[1]?.label}` : (hasSections ? steps[currentStep]?.label : '基本信息')}
-              </div>
-              <div style={{ display: 'flex', gap: 14 }}>
-                <Form.Item label="所属模块" style={{ marginBottom: 0 }}>
-                  <Select value={selectedModuleId} onChange={handleModuleChange} showSearch optionFilterProp="label" style={{ width: 280 }}>
-                    {scopedModules.map((mod) => (
-                      <Select.Option key={mod.id} value={mod.id} label={`${mod.departmentLabel} ${mod.label}`}>
-                        {mod.departmentLabel} · {mod.label}
-                      </Select.Option>
-                    ))}
-                  </Select>
-                </Form.Item>
-                {showTemplateSelector && (
-                  <Form.Item label="记录模板" style={{ marginBottom: 0 }}>
-                    <Select value={selectedTabId} onChange={(value) => { setSelectedTabId(value); form.resetFields(); setCurrentStep(0); }} style={{ width: 220 }}>
-                      {selectedModule?.tabs.map((tab) => (
-                        <Select.Option key={tab.id} value={tab.id}>{tab.label}</Select.Option>
-                      ))}
-                    </Select>
-                  </Form.Item>
-                )}
-                {hasSections && !flatMode && (
-                  <div style={{ marginLeft: 'auto', fontSize: 12, color: '#94A3B8', alignSelf: 'flex-end', paddingBottom: 4 }}>
-                    {stepFields.length} 个字段 · 第 {currentStep + 1}/{totalSteps} 步
-                  </div>
-                )}
-              </div>
-            </div>
 
-            {/* Fields for current step */}
-            <Form
-              form={form}
-              layout="vertical"
-              requiredMark="optional"
-              onValuesChange={() => { if (mountedRef.current) { setIsDirty(true); changeCountRef.current++; } }}
-            >
+        {hasSections && (
+          <div style={{ display: 'flex', gap: 4, marginTop: 14 }}>
+            {steps.map((step, i) => {
+              const active = i === currentStep;
+              const done = i < currentStep;
+              return (
+                <div
+                  key={i}
+                  onClick={() => setCurrentStep(i)}
+                  style={{
+                    flex: 1, padding: '8px 12px', borderRadius: 6, cursor: 'pointer',
+                    textAlign: 'center', fontSize: 13,
+                    background: active ? '#fff' : 'rgba(255,255,255,0.16)',
+                    color: active ? '#155A8A' : 'rgba(255,255,255,0.92)',
+                    fontWeight: active ? 700 : 400,
+                    border: active ? '1px solid #fff' : '1px solid transparent',
+                    transition: 'all .15s',
+                  }}
+                >
+                  <div style={{ fontSize: 11, opacity: 0.8 }}>
+                    {done ? '✓ ' : ''}步骤 {i + 1}
+                  </div>
+                  <div style={{ marginTop: 2 }}>{step.label}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Module/Template selector（放在蓝头内，像资料弹窗一样铺满） */}
+        <div style={{
+          background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 10,
+          padding: 14, marginTop: 16,
+        }}>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.78)', marginBottom: 6 }}>
+            {selectedModule?.departmentLabel} · {selectedModule?.label} · {selectedTab?.label}
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 12 }}>
+            {flatMode ? `${steps[0]?.label} · ${steps[1]?.label}` : (hasSections ? steps[currentStep]?.label : '基本信息')}
+          </div>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', lineHeight: 1.5 }}>所属模块</label>
+              <Select value={selectedModuleId} onChange={handleModuleChange} showSearch optionFilterProp="label" style={{ width: 280 }}>
+                {scopedModules.map((mod) => (
+                  <Select.Option key={mod.id} value={mod.id} label={`${mod.departmentLabel} ${mod.label}`}>
+                    {mod.departmentLabel} · {mod.label}
+                  </Select.Option>
+                ))}
+              </Select>
+            </div>
+            {showTemplateSelector && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', lineHeight: 1.5 }}>记录模板</label>
+                <Select value={selectedTabId} onChange={(value) => { setSelectedTabId(value); form.resetFields(); setRequestMode('case'); setCurrentStep(0); }} style={{ width: 220 }}>
+                  {selectedModule?.tabs.map((tab) => (
+                    <Select.Option key={tab.id} value={tab.id}>{tab.label}</Select.Option>
+                  ))}
+                </Select>
+              </div>
+            )}
+            {hasSections && !flatMode && (
+              <div style={{ marginLeft: 'auto', fontSize: 12, color: 'rgba(255,255,255,0.7)', paddingBottom: 6 }}>
+                {stepFields.length} 个字段 · 第 {currentStep + 1}/{totalSteps} 步
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflow: 'auto', padding: '16px 24px 16px' }}>
+        <Form
+          key={formKey}
+          form={form}
+          layout="vertical"
+          requiredMark="optional"
+          onValuesChange={() => { if (mountedRef.current) { setIsDirty(true); setChangeCount((c) => c + 1); } }}
+        >
               {/* 所有步骤字段同时渲染、用 display 切换可见性，保证 antd Form.Item / Form.List 永不卸载 */}
               {steps.map((step, si) => {
                 const isVisible = flatMode ? true : (si === currentStep);
@@ -531,11 +623,11 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
                             )}
                             {subFields.map(({ key, name: idx }) => (
                               <div key={key} style={{
-                                border: '1px solid #E2E8F0', borderRadius: 8, padding: 16,
-                                marginBottom: 16, background: '#FAFBFC',
+                                border: '1px solid var(--color-border-light)', borderRadius: 8, padding: 16,
+                                marginBottom: 16, background: 'var(--color-surface-hover)',
                               }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                                  <span style={{ fontSize: 14, fontWeight: 700, color: '#155A8A' }}>
+                                  <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-primary)' }}>
                                     {step.label} #{idx + 1}
                                   </span>
                                   {subFields.length > 1 && (
@@ -570,6 +662,23 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
                       <div
                         style={{ opacity: isVisible ? 1 : 0, transition: 'opacity 0.15s' }}
                       >
+                      {si === 0 && isEvidenceRequest && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 22, padding: '16px 20px', background: 'var(--color-surface-hover)', border: '2px solid var(--color-primary)', borderRadius: 12 }}>
+                          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-primary)' }}>请选择调证类型</span>
+                          <Radio.Group
+                            value={requestMode}
+                            onChange={(e) => handleModeChange(e.target.value as 'case' | 'clue')}
+                            buttonStyle="solid"
+                            size="large"
+                          >
+                            <Radio.Button value="case">案件调证</Radio.Button>
+                            <Radio.Button value="clue">线索调证</Radio.Button>
+                          </Radio.Group>
+                          <Tag color={requestMode === 'clue' ? 'blue' : 'default'} style={{ fontSize: 13, padding: '4px 10px', marginInlineEnd: 0 }}>
+                            {requestMode === 'clue' ? '已选「线索调证」· 编号自动以 XS- 开头' : '已选「案件调证」'}
+                          </Tag>
+                        </div>
+                      )}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14 }}>
                       {step.fields.map((field) => (
                         <div
@@ -582,7 +691,11 @@ export default function DrawerNewRecord({ onClose, editRecord }: Props) {
                                 : { gridColumn: 'span 3' })
                           }
                         >
-                          <DynamicField field={field} moduleId={selectedModuleId} form={form} pendingAttachments={pendingAttachments} editRecord={editRecord} />
+                          {field.id === 'clueNo' && requestMode === 'clue' ? (
+                            <GlobalClueNoField field={field} />
+                          ) : (
+                            <DynamicField field={field} moduleId={selectedModuleId} form={form} pendingAttachments={pendingAttachments} editRecord={editRecord} />
+                          )}
                         </div>
                       ))}
                     </div>
@@ -604,7 +717,7 @@ function DynamicField({ field, moduleId, subName, form, pendingAttachments, edit
   field: FieldDefinition; 
   moduleId: string; 
   subName?: number; 
-  form: any;
+  form: FormInstance;
   pendingAttachments: React.MutableRefObject<Set<string>>;
   editRecord?: import('../store/massStore').MassRecord | null;
   listName?: string;
@@ -613,8 +726,12 @@ function DynamicField({ field, moduleId, subName, form, pendingAttachments, edit
 
   // ─── 全局案件名称/编号联动 ───
   // 所有模块的 caseName/caseNo 都使用全局 AutoComplete，实现全软件数据共享
-  if (field.id === 'caseName' || field.id === 'clueName') {
+  if (field.id === 'caseName') {
     return <GlobalCaseNameField field={field} subName={subName} />;
+  }
+  if (field.id === 'clueName') {
+    // 线索名称使用独立全局池（与案件名称池互不干扰，各自全局共享）
+    return <GlobalHistoryField field={field} subName={subName} />;
   }
   if (field.id === 'caseNo') {
     return <GlobalCaseNoField field={field} subName={subName} />;
@@ -647,10 +764,10 @@ function DynamicField({ field, moduleId, subName, form, pendingAttachments, edit
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8,
         padding: '14px 0 4px', marginTop: 8,
-        borderBottom: '1px solid #D8E1EA',
+        borderBottom: '1px solid var(--color-border)',
       }}>
-        <div style={{ width: 3, height: 18, background: '#155A8A', borderRadius: 2, flexShrink: 0 }} />
-        <span style={{ fontSize: 14, fontWeight: 700, color: '#172033' }}>{field.label}</span>
+        <div style={{ width: 3, height: 18, background: 'var(--color-primary)', borderRadius: 2, flexShrink: 0 }} />
+        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>{field.label}</span>
       </div>
     );
   }
@@ -752,13 +869,14 @@ function AttachmentField({ field, name, moduleId, form, pendingAttachments, edit
   field: FieldDefinition;
   name: string | (string | number)[];
   moduleId: string;
-  form: any;
+  form: FormInstance;
   pendingAttachments: React.MutableRefObject<Set<string>>;
   editRecord?: import('../store/massStore').MassRecord | null;
 }) {
   const fieldName = typeof name === 'string' ? name : name[1];
+  const [category, setCategory] = useState('其他');
   // 优先从 editRecord 原始数据初始化（不受 form.setFieldsValue 时序影响）
-  const [fileList, setFileListState] = useState<any[]>(() => {
+  const [fileList, setFileListState] = useState<UploadFile[]>(() => {
     if (editRecord) {
       // 从原始记录数据中直接读取附件列表
       const raw = editRecord.data?.[field.id];
@@ -778,31 +896,9 @@ function AttachmentField({ field, name, moduleId, form, pendingAttachments, edit
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRemove = (uid: string) => {
-    const next = fileList.filter((f: any) => f.uid !== uid);
+    const next = fileList.filter((f: UploadFile) => f.uid !== uid);
     form.setFieldsValue({ [fieldName]: next });
     syncFileList();
-  };
-
-  const handlePreview = async (uid: string, fileName: string) => {
-    // 在 await 之前打开窗口，防止浏览器阻止弹窗
-    const newWin = window.open('', '_blank');
-    if (!newWin) {
-      // 弹窗被拦截，降级为下载
-      return handleDownload(uid, fileName);
-    }
-    newWin.document.write('<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#999;font-family:sans-serif">加载中...</div>');
-    try {
-      const att = await getAttachment(uid);
-      if (!att) { newWin.close(); return; }
-      const blob = new Blob([att.data], { type: att.fileType });
-      const url = URL.createObjectURL(blob);
-      newWin.location.href = url;
-      // URL.revokeObjectURL 延后回收，防止预览窗口打开后立刻断链
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    } catch (err) {
-      newWin.close();
-      console.warn('[attachment] 预览失败:', err);
-    }
   };
 
   const showToast = useAppStore.getState().showToast.bind(useAppStore.getState());
@@ -813,8 +909,8 @@ function AttachmentField({ field, name, moduleId, form, pendingAttachments, edit
       if (!att) throw new Error('附件数据不存在');
       const buf = Array.from(new Uint8Array(att.data));
       // Electron 模式：始终弹出原生保存对话框
-      if ((window as any).electronAPI?.showSaveDialog) {
-        const result = await (window as any).electronAPI.showSaveDialog(fileName, buf);
+      if (window.electronAPI?.showSaveDialog) {
+        const result = await window.electronAPI.showSaveDialog(fileName, buf);
         if (!result.success && !result.canceled) {
           throw new Error(result.error || '保存失败');
         }
@@ -840,19 +936,29 @@ function AttachmentField({ field, name, moduleId, form, pendingAttachments, edit
 
   return (
     <Form.Item label={field.label}>
-      <Form.Item name={name} valuePropName="fileList" getValueFromEvent={(info: any) => info?.fileList || []} noStyle>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>附件分类</span>
+        <Select
+          value={category}
+          onChange={(v: string) => setCategory(v)}
+          style={{ width: 160 }}
+          options={ATTACHMENT_CATEGORIES.map((c) => ({ label: c, value: c }))}
+        />
+      </div>
+      <Form.Item name={name} valuePropName="fileList" getValueFromEvent={(info: { fileList?: UploadFile[] }) => info?.fileList ?? []} noStyle>
         <Upload.Dragger
           beforeUpload={async (file) => {
             try {
-              const record = await saveAttachment('pending', moduleId, field.id, file);
+              const record = await saveAttachment('pending', moduleId, field.id, file, category);
               pendingAttachments.current.add(record.id);
-              const prev: any[] = form.getFieldValue(fieldName) || [];
+              const prev: UploadFile[] = (form.getFieldValue(fieldName) as UploadFile[]) || [];
               const newFile = {
                 uid: record.id,
                 name: file.name,
                 status: 'done' as const,
                 size: file.size,
                 type: file.type,
+                category,
               };
               const next = [...prev, newFile];
               form.setFieldsValue({ [fieldName]: next });
@@ -873,17 +979,17 @@ function AttachmentField({ field, name, moduleId, form, pendingAttachments, edit
 
       {fileList.length > 0 && (
         <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {fileList.map((file: any) => (
+          {fileList.map((file: UploadFile) => (
             <div key={file.uid} style={{
               display: 'flex', alignItems: 'center', gap: 8,
               padding: '6px 10px', borderRadius: 6,
-              background: '#F9FAFB', border: '1px solid #E5E7EB',
+              background: 'var(--color-surface-hover)', border: '1px solid var(--color-border-light)',
             }}>
-              <span style={{ flex: 1, fontSize: 13, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={{ flex: 1, fontSize: 13, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 📎 {file.name}
               </span>
               <span onClick={() => handleDownload(file.uid, file.name)}
-                style={{ fontSize: 12, color: '#155A8A', cursor: 'pointer', flexShrink: 0 }}>
+                style={{ fontSize: 12, color: 'var(--color-primary)', cursor: 'pointer', flexShrink: 0 }}>
                 下载
               </span>
               <span onClick={() => handleRemove(file.uid)}

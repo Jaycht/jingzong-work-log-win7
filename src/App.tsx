@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { ConfigProvider, Modal } from "antd";
+import { ConfigProvider, App as AntApp } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import { motion, MotionConfig } from "framer-motion";
 import { HashRouter, Route, Routes, useNavigate } from "react-router-dom";
@@ -12,30 +12,11 @@ import { useAppStore, loadUserFromStorage } from "./store/appStore";
 import { migrateOldCasesToMassStore, getMassRecords } from "./store/massStore";
 import { rebuildCaseIndex, rebuildSuspectIndex } from "./store/inputHistoryStore";
 import { indexedDBAdapter } from "./store/adapter";
-
-declare global {
-  interface Window {
-    electronAPI?: {
-      resizeToMain: () => void;
-      resizeToLogin: () => void;
-      isElectron: boolean;
-      minimize: () => void;
-      maximize: () => void;
-      close: () => void;
-      saveAttachmentFile: (buffer: number[], fileName: string, moduleId: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;
-      readAttachmentFile: (filePath: string) => Promise<{ success: boolean; buffer?: ArrayBuffer; error?: string }>;
-      deleteAttachmentFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
-      checkAttachmentFile: (filePath: string) => Promise<{ success: boolean; exists: boolean; error?: string }>;
-      getAttachmentsDir: () => Promise<string>;
-      showSaveDialog: (defaultName: string, buffer: number[]) => Promise<{ success: boolean; canceled?: boolean; filePath?: string; error?: string }>;
-      // Win7版：自动更新已移除
-    };
-  }
-}
+import { isElectron as isElectronEnv } from "./lib/env";
 
 function AppContent() {
   const navigate = useNavigate();
-  const isElectron = typeof window !== "undefined" && window.electronAPI?.isElectron;
+  const isElectron = isElectronEnv();
 
   // 数据迁移 + 重建案件索引
   useEffect(() => {
@@ -70,7 +51,7 @@ function AppContent() {
     });
   }, []);
 
-  // 恢复持久化的用户登录状态（跨窗口/跨应用重启）
+  // 恢复持久化的用户登录状态（跨刷新/跨应用重启）
   useEffect(() => {
     // 先检查用户是否开启了「自动登录」
     let isAutoLogin = false;
@@ -83,24 +64,53 @@ function AppContent() {
     } catch { /* ignore */ }
 
     const saved = loadUserFromStorage();
-    if (saved && saved.name && isAutoLogin) {
-      useAppStore.getState().setUser(saved.name, saved.role);
-      // 有持久化的用户且开启了自动登录 → 直接进入主界面
-      if (isElectron) {
-        window.electronAPI?.resizeToMain();
+    const here = window.location.hash || window.location.pathname;
+
+    if (saved && saved.name) {
+      if (isAutoLogin) {
+        // 勾选了自动登录：恢复会话并直接进入主界面
+        useAppStore.getState().setUser(saved.name, saved.role, {
+          badge: saved.badge,
+          phone: saved.phone,
+          department: saved.department,
+        });
+        if (isElectron) {
+          window.electronAPI?.resizeToMain();
+        }
+        navigate("/app/dashboard", { replace: true });
+      } else if (here.includes("/app")) {
+        // 未勾选自动登录，但刷新/重开时落在 /app（如地址栏直链）→ 恢复会话数据，
+        // 避免顶栏显示「未登录」、资料页空白
+        useAppStore.getState().setUser(saved.name, saved.role, {
+          badge: saved.badge,
+          phone: saved.phone,
+          department: saved.department,
+        });
       }
-      navigate("/app/dashboard", { replace: true });
+      // 否则停留在 /login，由用户手动登录（登录即无缝进入）
+    } else if (here.includes("/app")) {
+      // 无有效会话却直链到 /app：退回登录页，避免空会话进入主界面
+      navigate("/login", { replace: true });
     }
   }, []);
 
   const setUser = useAppStore((s) => s.setUser);
   const toasts = useAppStore((s) => s.toasts);
   const removeToast = useAppStore((s) => s.removeToast);
-  const darkMode = useAppStore((s) => s.darkMode);
   const lowPerfMode = useAppStore((s) => s.lowPerfMode);
+  const { modal } = AntApp.useApp();
 
-  const handleLogin = (name: string, role: string) => {
-    setUser(name, role);
+  // 把关闭行为设置同步给 Electron 主进程（主进程无法直接读 localStorage）
+  useEffect(() => {
+    if (!isElectron || !window.electronAPI?.setCloseBehavior) return;
+    try {
+      const behavior = localStorage.getItem('jingzong.closeBehavior') || 'ask';
+      window.electronAPI.setCloseBehavior(behavior as 'exit' | 'tray' | 'ask');
+    } catch { /* ignore */ }
+  }, [isElectron]);
+
+  const handleLogin = (name: string, role: string, extra?: { badge?: string; phone?: string; department?: string }) => {
+    setUser(name, role, extra);
     if (isElectron) {
       window.electronAPI?.resizeToMain();
     }
@@ -180,14 +190,20 @@ function AppContent() {
 
 export default function App() {
   const darkMode = useAppStore((s) => s.darkMode);
+  const uiDensity = useAppStore((s) => s.uiDensity);
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
   }, [darkMode]);
+  useEffect(() => {
+    document.documentElement.setAttribute('data-density', uiDensity);
+  }, [uiDensity]);
   return (
     <ConfigProvider locale={zhCN} theme={darkMode ? DARK_THEME : LIGHT_THEME}>
-      <HashRouter>
-        <AppContent />
-      </HashRouter>
+      <AntApp>
+        <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <AppContent />
+        </HashRouter>
+      </AntApp>
     </ConfigProvider>
   );
 }

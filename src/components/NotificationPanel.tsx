@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Gavel, FileText, Shield, Database, Search, Scale, Zap } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 import { getMassRecords } from '../store/massStore';
+import { useDataChanged } from '../store/dataEvents';
 
 const QUICK_MODULES = [
   { id: 'legal-report-case', label: '接报案', icon: FileText, color: '#F59E0B' },
@@ -20,11 +21,11 @@ const QUICK_MODULES = [
 export default function NotificationPanel() {
   const [collapsed, setCollapsed] = useState(true);
   const darkMode = useAppStore((s) => s.darkMode);
-  const setEditRecord = useAppStore((s) => s.setEditRecord);
   const setCurrentPage = useAppStore((s) => s.setCurrentPage);
   const openModal = useAppStore((s) => s.openModal);
 
   // 系统状态
+  const dataVersion = useDataChanged();
   const stats = useMemo(() => {
     const records = getMassRecords();
     const total = records.length;
@@ -32,7 +33,7 @@ export default function NotificationPanel() {
     const completed = records.filter(r => r.data?.status === '已完成' || r.data?.status === '已办结').length;
     const moduleCount = new Set(records.map(r => r.moduleId)).size;
     return { total, thisMonth, completed, rate: total > 0 ? Math.round(completed / total * 100) : 0, modules: moduleCount };
-  }, []);
+  }, [dataVersion]);
 
   const handleModuleClick = (moduleId: string) => {
     setCurrentPage(moduleId);

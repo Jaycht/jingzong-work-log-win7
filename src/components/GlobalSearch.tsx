@@ -2,7 +2,7 @@
  * 全局搜索组件
  * 搜遍所有模块的所有字段 + 附件名，结果按模块分组展示，命中关键词高亮
  */
-import { useMemo, useState, useRef, useCallback, useEffect } from 'react';
+import { useMemo, useState, useRef, useCallback, useEffect, type ReactElement } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, X, ChevronRight, FileText } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
@@ -10,6 +10,7 @@ import { getMassRecords } from '../store/massStore';
 import type { MassRecord } from '../store/massStore';
 import { getAllAttachments } from '../store/attachmentStore';
 import { MODULE_INFO } from '../moduleConfig';
+import { FIELD_LABELS as SHARED_FIELD_LABELS } from '../constants/fieldLabels';
 
 interface SearchResult {
   moduleId: string;
@@ -28,73 +29,26 @@ const PRIORITY_FIELDS = new Set([
   'idNo', 'phone', 'leadOfficer', 'assistOfficer',
 ]);
 
-/** 完整字段标签映射 */
+/** 完整字段标签映射：以统一映射为基准，叠加搜索场景的特化标签（H-8 去重） */
 const FIELD_LABELS: Record<string, string> = {
-  // 案件相关
-  caseName: '案件名称', caseNo: '案件编号',
-  caseSource: '案件来源', caseType: '案件类型',
-  caseStage: '案件阶段', caseSummary: '简要案情',
-  // 嫌疑人/人员
-  suspect: '嫌疑人', suspectName: '嫌疑人姓名',
-  suspectIdNo: '嫌疑人身份证号', suspectPhone: '嫌疑人手机号',
-  suspectAddress: '嫌疑人地址',
-  holder: '持有人', holderIdentity: '持有人身份',
-  person: '涉案个人', enterprise: '涉案企业',
-  // 身份证/电话
-  idNo: '身份证号码', phone: '手机号',
-  // 办案民警
-  leadOfficer: '主办民警', assistOfficer: '协办民警',
-  handler: '经办人', approver: '审批人',
-  handlingOfficer: '经办民警', legalReviewer: '法制审核人',
-  receivingOfficer: '接报民警', statistician: '内勤统计人',
-  // 日期
-  receiveDate: '受案时间', filingDate: '立案时间',
-  noFilingDate: '不予立案时间', executeDate: '执行时间',
-  deadline: '期限届满时间', notifyDate: '告知时间',
-  approvalDate: '审批时间', recordDate: '记录日期',
-  crimeDate: '案发时间', investEndDate: '侦查终结',
-  prosecutionDate: '移送起诉', caseCloseDate: '结案时间',
-  // 涉众
-  projectName: '项目名称',
-  reportMatter: '接报事项',
-  clueName: '线索名称',
-  visitorName: '来访人',
-  // 资金
-  totalAmount: '涉案金额', recoveredAmount: '挽损金额',
-  actualLoss: '实际损失', frozenFunds: '冻结资金',
-  // 设备采集
-  deviceType: '设备类型', deviceBrand: '设备品牌',
-  deviceModel: '具体型号', collectContent: '采集内容',
-  // 强制措施
-  measure: '强制措施类型', executeResult: '执行情况',
-  // 其他
-  propertyName: '财物名称',
-  actionName: '专项行动名称',
-  battleName: '战役名称', battleNo: '战役编号',
-  squad: '所属中队',
-  filingDocNo: '受立案文书号',
-  summary: '用途摘要', details: '具体内容',
-  nextDayPlan: '次日计划', nextInvestDirection: '侦查方向',
-  // 调证
-  investigateAccount: '调证账号',
-  investigatePlatform: '调证平台',
-  bankAccount: '银行账户',
-  companyAccount: '公司账户',
-  // 党建/考勤
-  partyMember: '党员姓名',
-  meetingName: '会议名称',
-  // 文件
-  matterName: '事项名称',
-  // 附件（特殊标记）
-  _attachment: '附件名称',
+  ...SHARED_FIELD_LABELS,
+  suspectIdNo: '嫌疑人身份证号',
+  suspectPhone: '嫌疑人手机号',
+  receiveDate: '受案时间',
+  filingDate: '立案时间',
+  deadline: '期限届满时间',
+  notifyDate: '告知时间',
+  totalAmount: '涉案金额',
+  executeResult: '执行情况',
+  summary: '用途摘要',
 };
 
 /** 高亮关键词，返回 JSX 片段 */
-function highlightText(text: string, keyword: string): (string | JSX.Element)[] {
+function highlightText(text: string, keyword: string): (string | ReactElement)[] {
   if (!keyword) return [text];
   const lower = text.toLowerCase();
   const kw = keyword.toLowerCase();
-  const parts: (string | JSX.Element)[] = [];
+  const parts: (string | ReactElement)[] = [];
   let lastIndex = 0;
   let idx = lower.indexOf(kw, lastIndex);
   while (idx !== -1) {
@@ -165,11 +119,13 @@ export default function GlobalSearch() {
     }).catch(() => {});
   }, []);
 
+  // L-10：记录总数只读取一次（底部 JSX 不再重复调用 getMassRecords()）
+  const allRecords = useMemo(() => getMassRecords(), []);
+
   const results = useMemo<SearchResult[]>(() => {
     const q = query.trim();
     if (!q) return [];
 
-    const allRecords = getMassRecords();
     const grouped = new Map<string, SearchResult>();
     const lowerKw = q.toLowerCase();
 
@@ -212,7 +168,7 @@ export default function GlobalSearch() {
 
     // 按匹配数量降序排列模块
     return Array.from(grouped.values()).sort((a, b) => b.records.length - a.records.length);
-  }, [query, attachmentNames]);
+  }, [query, attachmentNames, allRecords]);
 
   const totalMatches = useMemo(() => results.reduce((s, g) => s + g.records.length, 0), [results]);
 
@@ -423,7 +379,7 @@ export default function GlobalSearch() {
               textAlign: 'center',
               background: darkMode ? 'rgba(28,31,38,0.6)' : '#FAFBFC',
             }}>
-              共搜索 {getMassRecords().length} 条记录 · 搜附件名 {attachmentNames.length} 个 · 点击结果打开编辑
+              共搜索 {allRecords.length} 条记录 · 搜附件名 {attachmentNames.length} 个 · 点击结果打开编辑
             </div>
           </motion.div>
         )}

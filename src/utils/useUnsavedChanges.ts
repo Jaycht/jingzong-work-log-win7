@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { isElectron as isElectronEnv } from "../lib/env";
 
 /**
  * 未保存变更拦截钩子
@@ -7,7 +8,7 @@ import { useEffect } from "react";
 export function useUnsavedChanges(active: boolean) {
   useEffect(() => {
     if (!active) return;
-    const isElectron = typeof window !== "undefined" && (window as any).electronAPI?.isElectron;
+    const isElectron = isElectronEnv();
     if (isElectron) return; // Electron 下不拦截窗口关闭
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();

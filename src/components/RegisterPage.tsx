@@ -55,13 +55,13 @@ export default function RegisterPage({ onBack }: Props) {
     setError("");
 
     // 检查账号/警号是否已被注册
-    const existingUsers = JSON.parse(localStorage.getItem("jingzong.users.v1") || "[]");
-    if (existingUsers.find((u: any) => u.account === account)) {
+    const existingUsers: Array<{ account?: string; badge?: string }> = JSON.parse(localStorage.getItem("jingzong.users.v1") || "[]");
+    if (existingUsers.find((u) => u.account === account)) {
       setLoading(false);
       setError("该账号已被注册");
       return;
     }
-    if (existingUsers.find((u: any) => u.badge === badge)) {
+    if (existingUsers.find((u) => u.badge === badge)) {
       setLoading(false);
       setError("该警号已被注册");
       return;

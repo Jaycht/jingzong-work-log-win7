@@ -7,6 +7,7 @@ import { indexedDBAdapter } from './adapter';
 import { addOperationLog } from './operationLogStore';
 import { useAppStore } from './appStore';
 import { rebuildCaseIndex, rebuildSuspectIndex } from './inputHistoryStore';
+import { deleteAttachmentsByRecord, getAllAttachments, deleteAttachment } from './attachmentStore';
 
 const STORAGE_KEY = 'jingzong.mass.records';
 const MIGRATION_KEY = 'jingzong.mass.migratedToIDB.v1';
@@ -33,6 +34,11 @@ function currentUser(): string {
 export function getMassRecords(moduleId?: string): MassRecord[] {
   const all = indexedDBAdapter.getItem<MassRecord[]>(STORAGE_KEY, []);
   return moduleId ? all.filter((record) => record.moduleId === moduleId) : all;
+}
+
+/** 按 id 查找单条记录（L-12：替代散落的 getMassRecords().find，避免重复全量读取） */
+export function getMassRecordById(id: string): MassRecord | undefined {
+  return indexedDBAdapter.getItem<MassRecord[]>(STORAGE_KEY, []).find((record) => record.id === id);
 }
 
 export function saveMassRecord(moduleId: string, tabId: string, data: MassRecordData): MassRecord {
@@ -88,6 +94,8 @@ export function deleteMassRecord(id: string): void {
   indexedDBAdapter.setItem(STORAGE_KEY, records);
   rebuildCaseIndex(records);
   rebuildSuspectIndex(records);
+  // 联动清理该记录关联的附件（异步、尽力而为，不阻塞删除主流程）
+  deleteAttachmentsByRecord(id).catch(() => {});
   addOperationLog({
     user: currentUser(),
     action: '删除',
@@ -103,6 +111,8 @@ export function deleteMassRecords(ids: string[]): void {
   indexedDBAdapter.setItem(STORAGE_KEY, records);
   rebuildCaseIndex(records);
   rebuildSuspectIndex(records);
+  // 联动清理批量删除记录关联的附件
+  ids.forEach((id) => deleteAttachmentsByRecord(id).catch(() => {}));
   addOperationLog({
     user: currentUser(),
     action: '批量删除',
@@ -113,7 +123,70 @@ export function deleteMassRecords(ids: string[]): void {
 }
 
 /**
- * 从所有记录中移除指定附件 ID 的引用
+ * 清理孤儿附件：recordId 为 'pending'（上传后未保存）或已无对应记录的附件。
+ * 返回清理数量。
+ */
+export async function cleanupOrphanAttachments(): Promise<number> {
+  const all = await getAllAttachments();
+  if (all.length === 0) return 0;
+  const validIds = new Set(getMassRecords().map((r) => r.id));
+  let removed = 0;
+  for (const att of all) {
+    if (att.recordId === 'pending' || !validIds.has(att.recordId)) {
+      await deleteAttachment(att.id);
+      removed++;
+    }
+  }
+  return removed;
+}
+
+/**
+ * 递归遍历数据树，移除任意层级（含数组元素）中 uid 命中附件 ID 的引用对象。
+ * 用结构化遍历替代原来的「JSON 字符串 + 正则」外科手术，
+ * 避免尾逗号清理失败、嵌套对象/数组被误伤等隐患（M-12）。
+ */
+function stripAttachmentRefs(
+  node: unknown,
+  ids: Set<string>,
+): { value: unknown; removed: number; drop: boolean } {
+  if (Array.isArray(node)) {
+    const out: unknown[] = [];
+    let removed = 0;
+    for (const item of node) {
+      const r = stripAttachmentRefs(item, ids);
+      if (r.drop) {
+        removed += r.removed; // 整个元素即附件引用对象，丢弃
+        continue;
+      }
+      removed += r.removed;
+      out.push(r.value);
+    }
+    return { value: out, removed, drop: false };
+  }
+  if (node && typeof node === 'object') {
+    const obj = node as Record<string, unknown>;
+    // 该对象自身即为附件引用（含 uid 且命中）
+    if (typeof obj.uid === 'string' && ids.has(obj.uid)) {
+      return { value: undefined, removed: 1, drop: true };
+    }
+    let removed = 0;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(obj)) {
+      const r = stripAttachmentRefs(obj[key], ids);
+      if (r.drop) {
+        removed += r.removed; // 该属性值是附件引用对象，整段移除
+        continue;
+      }
+      removed += r.removed;
+      out[key] = r.value;
+    }
+    return { value: out, removed, drop: false };
+  }
+  return { value: node, removed: 0, drop: false };
+}
+
+/**
+ * 从所有记录中移除指定附件 ID 的引用（M-12：结构化遍历，替代正则 JSON 重写）
  * 通过适配器读取/写入，兼容 IndexedDB 存储
  */
 export function removeAttachmentRefsFromAllRecords(attachmentIds: Set<string>): number {
@@ -126,35 +199,13 @@ export function removeAttachmentRefsFromAllRecords(attachmentIds: Set<string>): 
   let anyModified = false;
 
   for (const record of records) {
-    const dataStr = JSON.stringify(record.data);
-    let modified = dataStr;
-    let removedForRecord = 0;
-    for (const id of attachmentIds) {
-      if (!id) continue;
-      const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const patterns = [
-        new RegExp(`,\\s*\\{[^}]*"uid"\\s*:\\s*"${escaped}"[^}]*\\}`, 'g'),
-        new RegExp(`\\{[^}]*"uid"\\s*:\\s*"${escaped}"[^}]*\\}\\s*,`, 'g'),
-      ];
-      for (const re of patterns) {
-        const before = modified.length;
-        modified = modified.replace(re, '');
-        if (modified.length !== before) removedForRecord++;
-      }
-    }
-    if (modified !== dataStr) {
-      try {
-        const cleaned = modified
-          .replace(/,\s*\}/g, '}')
-          .replace(/,\s*\]/g, ']');
-        JSON.parse(cleaned); // 验证 JSON 合法性
-        record.data = JSON.parse(cleaned);
-        totalRemoved += removedForRecord;
-        anyModified = true;
-      } catch {
-        // JSON 解析失败，跳过该条记录，不计入移除数
-      }
-    }
+    const res = stripAttachmentRefs(record.data, attachmentIds);
+    if (res.removed === 0) continue;
+    // 退化情况：整条 data 自身即附件引用对象，不整体销毁，仅跳过
+    if (res.drop) continue;
+    record.data = res.value as MassRecordData;
+    totalRemoved += res.removed;
+    anyModified = true;
   }
 
   if (anyModified) {

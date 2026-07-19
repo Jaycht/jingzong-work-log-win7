@@ -62,4 +62,8 @@ export const localStorageAdapter: StorageAdapter = {
     const keysToRemove = this.keys(prefix);
     keysToRemove.forEach((key) => localStorage.removeItem(key));
   },
+
+  whenReady(): Promise<void> {
+    return Promise.resolve();
+  },
 };

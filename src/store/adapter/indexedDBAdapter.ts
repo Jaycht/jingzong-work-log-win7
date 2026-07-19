@@ -14,6 +14,9 @@ class IndexedDBAdapter implements StorageAdapter {
   private cache = new Map<string, unknown>();
   private ready: Promise<void>;
   private db: IDBDatabase | null = null;
+  /** DB 未就绪时排队的写/删操作，就绪后统一 flush，避免静默丢写（C-1） */
+  private pendingWrites = new Map<string, unknown>();
+  private pendingRemoves = new Set<string>();
 
   constructor() {
     this.ready = this.initDB();
@@ -25,7 +28,7 @@ class IndexedDBAdapter implements StorageAdapter {
   }
 
   private initDB(): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
       request.onerror = () => {
         console.warn('[IndexedDB] Failed to open, falling back to memory-only mode');
@@ -39,7 +42,14 @@ class IndexedDBAdapter implements StorageAdapter {
       };
       request.onsuccess = () => {
         this.db = request.result;
-        this.loadAll().then(resolve).catch(() => resolve());
+        // 先填充缓存（跳过已排队写入的 key，保留内存中的最新值），再 flush 排队操作
+        this.loadAll()
+          .then(() => this.flushPending())
+          .then(resolve)
+          .catch(() => {
+            this.flushPending();
+            resolve();
+          });
       };
     });
   }
@@ -53,7 +63,10 @@ class IndexedDBAdapter implements StorageAdapter {
       req.onsuccess = () => {
         const cursor = req.result;
         if (cursor) {
-          this.cache.set(cursor.key as string, cursor.value);
+          // 已排队写入的 key 以内存中值（最新）为准，不要被磁盘旧值覆盖
+          if (!this.pendingWrites.has(cursor.key as string)) {
+            this.cache.set(cursor.key as string, cursor.value);
+          }
           cursor.continue();
         } else {
           resolve();
@@ -61,6 +74,19 @@ class IndexedDBAdapter implements StorageAdapter {
       };
       req.onerror = () => reject(req.error);
     });
+  }
+
+  /** DB 就绪后，将启动期间排队的写/删落盘 */
+  private flushPending(): void {
+    if (!this.db) return;
+    for (const [key, value] of this.pendingWrites) {
+      this.persist(key, value);
+    }
+    this.pendingWrites.clear();
+    for (const key of this.pendingRemoves) {
+      this.removeKey(key);
+    }
+    this.pendingRemoves.clear();
   }
 
   private persist(key: string, value: unknown): void {
@@ -91,12 +117,21 @@ class IndexedDBAdapter implements StorageAdapter {
 
   setItem(key: string, value: unknown): void {
     this.cache.set(key, value);
-    this.persist(key, value);
+    if (this.db) {
+      this.persist(key, value);
+    } else {
+      // DB 尚未就绪：排队，待 initDB 完成后 flush（C-1）
+      this.pendingWrites.set(key, value);
+    }
   }
 
   removeItem(key: string): void {
     this.cache.delete(key);
-    this.removeKey(key);
+    if (this.db) {
+      this.removeKey(key);
+    } else {
+      this.pendingRemoves.add(key);
+    }
   }
 
   keys(prefix?: string): string[] {
@@ -122,6 +157,8 @@ class IndexedDBAdapter implements StorageAdapter {
   clear(prefix?: string): void {
     if (!prefix) {
       this.cache.clear();
+      this.pendingWrites.clear();
+      this.pendingRemoves.clear();
       if (this.db) {
         try {
           const tx = this.db.transaction(STORE_NAME, 'readwrite');

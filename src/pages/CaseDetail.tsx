@@ -1,86 +1,60 @@
 /**
- * 案件 360° 全屏视图
- * 左侧 tab 切换维度，右侧展示内容
+ * 案件查看弹窗（只读）
+ * 复用编辑页 DrawerNewRecord 的 antd Modal 弹窗风格（居中、标题栏、可滚动 body、底部按钮），
+ * 只做信息展示：基本信息（表格行式）+ repeatable 段落 + 附件；
+ * 不展示关联记录、时间线（按需求移除）。
  */
-import { useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
-import { ArrowLeft, FileText, Link2, Clock, Paperclip, Pen, Download } from 'lucide-react';
-import { Descriptions, Tag, Button, Empty } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import { Collapse, Modal } from 'antd';
+import { FileText, Paperclip, Pen, Download } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
-import { getMassRecords } from '../store/massStore';
-import { downloadAttachment } from '../store/attachmentStore';
+import { downloadAttachment, getAttachmentPreview } from '../store/attachmentStore';
+import { getMassRecords, updateMassRecord } from '../store/massStore';
 import { MODULE_NAMES, findModule } from '../moduleConfig';
 import { useCustomModules } from '../customModules';
+import { FIELD_LABELS } from '../constants/fieldLabels';
 
 type MassRecord = import('../store/massStore').MassRecord;
 
 interface Props {
   record: MassRecord;
   onClose: () => void;
+  onOpenRelated?: (rec: MassRecord) => void;
 }
 
-const FIELD_LABELS: Record<string, string> = {
-  caseName: '案件名称', caseNo: '案件编号', caseType: '案件类型', caseSource: '案件来源',
-  suspect: '嫌疑人', suspectName: '嫌疑人姓名', caseStatus: '案件状态',
-  status: '状态', handler: '经办人', handlerName: '经办人',
-  briefCase: '简要案情', briefDescription: '简要说明', summary: '摘要',
-  filingDate: '立案日期', receiveDate: '受理日期', crimeDate: '案发时间',
-  caseLocation: '案发地', crimeLocation: '案发地',
-  leadOfficer: '主办民警', assistOfficer: '协办民警',
-  formerName: '曾用名', gender: '性别', ethnicity: '民族',
-  birthDate: '出生日期', suspectIdNo: '身份证号', registeredAddress: '户籍地址',
-  currentAddress: '现住址', education: '学历', occupation: '职业',
-  suspectPhone: '手机号', landline: '座机', socialAccount: '社交账号',
-  emergencyContact: '紧急联系人', hasCriminalRecord: '有无前科', isFugitive: '是否在逃',
-  captureDate: '抓获时间', suspectRole: '涉案身份', personalIllegalIncome: '个人违法所得',
-  arrestMethod: '归案方式', summonDate: '传唤时间',
-  reporterName: '报案人', reporterGender: '性别', reporterIdNo: '身份证号',
-  reporterPhone: '电话', reporterWechat: '微信', reporterAddress: '地址',
-  reporterWorkplace: '工作单位', reporterRelationship: '与案件关系',
-  reporterConfidential: '是否保密', reporterCooperate: '是否配合',
-  reporterIdentity: '报案人身份', reporters: '报案人',
-  measure: '强制措施类型', isNotified: '是否告知/通知', notifyDate: '告知/通知时间',
-  approvalDate: '审批时间', executeDate: '执行时间', deadline: '期限',
-  approver: '审批人', executeResult: '执行结果',
-  clueSources: '线索来源', interviewees: '约谈对象',
-  intervieweeName: '姓名', intervieweeGender: '性别', intervieweeAge: '年龄',
-  intervieweeIdNo: '身份证号', intervieweePhone: '电话', intervieweeAddress: '地址',
-  intervieweeIdentity: '身份', riskLevel: '风险等级',
-  isElderly: '是否老年人', isHardship: '是否困难户',
-  involvedEntities: '涉案主体', attachment: '附件',
-  // 附件字段
-  name: '文件名', lastModifiedDate: '最后修改时间', size: '文件大小',
-  type: '文件类型', percent: '进度', uid: '附件ID',
-  // 其他常见字段
-  totalAmount: '涉案总金额', victimCount: '受害人数',
-  amount: '金额', projectName: '项目名称', clueName: '线索名称',
-  collectDate: '采集日期', visitDate: '走访日期', visitPurpose: '走访目的',
-  visitResult: '走访结果', targetUnit: '走访对象',
-  recordDate: '记录日期', criminalDetentionDate: '刑事拘留日期',
-  bailDate: '取保日期', arrestDate: '逮捕日期',
-  residentialSurveillanceDate: '监视居住日期', transferProsecutionDate: '移诉日期',
-  interrogationDate: '询问时间', detentionDate: '拘留时间',
-  punishment: '处罚结果', rewardStatus: '奖励状态',
-  documentType: '文件类型', documentTitle: '文件标题',
-  relatedCases: '关联案件', evidenceType: '证据类型',
-  involvedEntities: '涉案主体', crimeAmount: '涉案金额',
-};
+// 字段中文标签统一引用 src/constants/fieldLabels
 
 function fmtDate(iso: string | Date): string {
   if (!iso) return '—';
   const d = typeof iso === 'string' ? new Date(iso) : iso;
   if (isNaN(d.getTime())) return '—';
-  const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+}
+
+/** 日期时间（保留到秒，去掉毫秒与时区后缀），本地时区展示 */
+function fmtDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
 /** 将任意值转为安全的字符串显示 */
 function fmtValue(val: unknown): string {
   if (val === null || val === undefined) return '—';
+  // Date 对象：保留到秒
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return '—';
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${val.getFullYear()}-${p(val.getMonth() + 1)}-${p(val.getDate())} ${p(val.getHours())}:${p(val.getMinutes())}:${p(val.getSeconds())}`;
+  }
   if (Array.isArray(val)) {
-    // 附件数组：只显示文件名
-    if (val.length > 0 && val[0] && typeof val[0] === 'object' && (val[0] as any).uid) {
-      return val.map((f: any) => f.name || '附件').join('、');
+    // 附件数组：只显示文件名（详情里不在此展示）
+    const first = val[0] as Record<string, unknown>;
+    if (val.length > 0 && first && typeof first === 'object' && first.uid) {
+      return val
+        .map((f: Record<string, unknown>) => String(f.name ?? '附件'))
+        .join('、');
     }
     return val.map(v => fmtValue(v)).join('、');
   }
@@ -101,78 +75,224 @@ function fmtValue(val: unknown): string {
     // 其他对象
     return JSON.stringify(val).slice(0, 30);
   }
-  if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(val)) return fmtDate(val);
+  if (typeof val === 'string') {
+    // 含秒的 ISO 日期时间：保留到秒
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(val)) return fmtDateTime(val);
+    // 仅到分钟 / 纯日期
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(val)) return fmtDate(val);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return fmtDate(val);
+  }
   return String(val);
 }
 
-const TABS = [
-  { id: 'info', label: '基本信息', icon: FileText },
-  { id: 'related', label: '关联记录', icon: Link2 },
-  { id: 'timeline', label: '时间线', icon: Clock },
-  { id: 'attachments', label: '附件', icon: Paperclip },
-];
+/** 派生记录标题：兼容各模块主键字段，回退到首个有值文本字段 */
+function deriveRecordTitle(d: Record<string, unknown>): string {
+  const cands = [d.caseName, d.suspect, d.subjectName, d.projectName, d.reporterName, d.name, d.title];
+  for (const c of cands) {
+    if (c != null && String(c).trim() !== '') return String(c).trim();
+  }
+  for (const [k, v] of Object.entries(d)) {
+    if (!k.startsWith('__') && typeof v === 'string' && v.trim() !== '') return v.trim().slice(0, 40);
+  }
+  return '未命名';
+}
 
-export default function CaseDetail({ record, onClose }: Props) {
-  const darkMode = useAppStore((s) => s.darkMode);
+type CdStatusKind = 'done' | 'warning' | 'danger' | 'info';
+const CD_STATUS_HINTS = ['状态', '进度', '结案', '归档', '报销', '反馈', '整改', '结果'];
+function deriveCdStatus(rec: MassRecord, fields: { type: string; label: string; id: string }[]): { label: string; kind: CdStatusKind } | null {
+  const sf = fields.find((f) => f.type === 'select' && CD_STATUS_HINTS.some((h) => f.label.includes(h)));
+  if (!sf) return null;
+  const v = rec.data?.[sf.id];
+  if (v == null || String(v).trim() === '') return null;
+  const s = String(v);
+  const done = ['已结案', '已办结', '已完成', '已反馈', '已报销', '息诉罢访', '化解', '通过', '合格', '归档', '无需整改', '已整改', '正常'];
+  const danger = ['超期', '逾期', '已过期', '异常', '退回', '不通过', '不合格', '未化解', '仍有越级上访苗头', '重点管控'];
+  const warning = ['待补充', '待报销', '未反馈', '未结案', '未办结', '整改中', '初查中', '办理中', '进行中', '调查中', '迟到', '缺勤', '待公示', '未整改'];
+  let kind: CdStatusKind = 'info';
+  if (done.includes(s)) kind = 'done';
+  else if (danger.includes(s)) kind = 'danger';
+  else if (warning.includes(s)) kind = 'warning';
+  return { label: s, kind };
+}
+
+/** 是否为附件型值（数组且元素为带 uid 的附件对象） */
+function isAttachmentValue(v: unknown): boolean {
+  if (!Array.isArray(v) || v.length === 0) return false;
+  return v.every(item => item && typeof item === 'object' && !!(item as Record<string, unknown>).uid);
+}
+
+/** 图片附件缩略图：懒加载预览图（仅图片类型） */
+function ImageThumb({ uid }: { uid: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    getAttachmentPreview(uid).then((p) => { if (alive && p) setUrl(p.url); }).catch(() => {});
+    return () => { alive = false; };
+  }, [uid]);
+  if (!url) return <div className="cd-thumb cd-thumb-ph" />;
+  return <img className="cd-thumb" src={url} alt="" />;
+}
+
+export default function CaseDetail({ record, onClose, onOpenRelated }: Props) {
   const setEditRecord = useAppStore((s) => s.setEditRecord);
   const setCurrentPage = useAppStore((s) => s.setCurrentPage);
   const openModal = useAppStore((s) => s.openModal);
+  const showToast = useAppStore((s) => s.showToast);
   const { allModules } = useCustomModules();
-  const [activeTab, setActiveTab] = useState('info');
 
-  const caseName = String(record.data?.caseName || record.data?.suspect || '未命名');
+  const caseName = useMemo(() => {
+    const d = record.data || {};
+    // 优先业务主键字段（兼容各模块：案件/嫌疑人/涉众主体/项目/举报人等）
+    const cands = [d.caseName, d.suspect, d.subjectName, d.projectName, d.reporterName, d.name, d.title];
+    for (const c of cands) {
+      if (c != null && String(c).trim() !== '') return String(c).trim();
+    }
+    // 回退：第一个有值的文本字段
+    for (const [k, v] of Object.entries(d)) {
+      if (!k.startsWith('__') && typeof v === 'string' && v.trim() !== '') return v.trim().slice(0, 40);
+    }
+    return '未命名';
+  }, [record]);
   const moduleName = MODULE_NAMES[record.moduleId] || record.moduleId;
 
-  // 查找关联记录
-  const relatedRecords = useMemo(() => {
+  // 关联记录 + 时间线：用「多条关键身份词(姓名/身份证/电话/案件名/项目名/主体名等)」匹配，比单标题串鲁棒
+  const { relatedRecords, timeline } = useMemo(() => {
     const all = getMassRecords();
-    const kw = caseName.toLowerCase();
-    return all.filter(r => {
-      if (r.id === record.id) return false;
-      const d = r.data || {};
-      return Object.values(d).some(v => {
-        if (typeof v === 'string') return v.toLowerCase().includes(kw);
-        return false;
-      });
-    }).slice(0, 10);
-  }, [record, caseName]);
+    const d = record.data || {};
+    const IDENTITY_KEYS = ['caseName', 'suspect', 'subjectName', 'projectName', 'reporterName', 'name', 'title', 'caseNo', 'idCard', 'phone', 'mobile', 'company', 'unit', 'orgName', 'legalName', 'personName', 'suspectName'];
+    const kws = new Set<string>();
+    for (const k of IDENTITY_KEYS) {
+      const v = d[k];
+      if (typeof v === 'string' && v.trim().length >= 2) kws.add(v.trim().toLowerCase());
+    }
+    for (const v of Object.values(d)) {
+      if (typeof v === 'string' && /[\d]{4,}/.test(v)) kws.add(v.trim().toLowerCase());
+    }
+    const matchAny = (data: Record<string, unknown>, kw: string) =>
+      Object.values(data).some(v =>
+        (typeof v === 'string' && v.toLowerCase().includes(kw)) ||
+        (Array.isArray(v) && v.some(x => typeof x === 'string' && x.toLowerCase().includes(kw)))
+      );
+    const kwArr = [...kws];
+    const rel = all.filter(r => r.id !== record.id && kwArr.some(kw => matchAny(r.data || {}, kw))).slice(0, 12);
+    const tl = [...rel].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 20);
+    return { relatedRecords: rel, timeline: tl };
+  }, [record]);
 
-  // 时间线
-  const timeline = useMemo(() => {
+  // 结构化关联：手动「钉选」的关联记录 id（与启发式匹配互补，双向持久化到 record.data.linkedRecordIds）
+  const [linkedIds, setLinkedIds] = useState<string[]>(() =>
+    Array.isArray(record.data?.linkedRecordIds) ? (record.data!.linkedRecordIds as string[]) : []
+  );
+  const linkedSet = useMemo(() => new Set(linkedIds), [linkedIds]);
+  // 展示用关联集合 = 启发式匹配 ∪ 手动关联（去重，手动关联项补充进列表）
+  const displayedRelated = useMemo(() => {
     const all = getMassRecords();
-    const kw = caseName.toLowerCase();
-    return all
-      .filter(r => {
-        const d = r.data || {};
-        return Object.values(d).some(v => typeof v === 'string' && v.toLowerCase().includes(kw));
-      })
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      .slice(0, 20);
-  }, [record, caseName]);
+    const map = new Map<string, MassRecord>();
+    for (const r of relatedRecords) map.set(r.id, r);
+    for (const id of linkedIds) {
+      if (!map.has(id)) {
+        const rec = all.find((x) => x.id === id);
+        if (rec) map.set(id, rec);
+      }
+    }
+    return [...map.values()];
+  }, [relatedRecords, linkedIds]);
 
-  // 附件
+  /** 切换与某条记录的关联（双向持久化；updateMassRecord 为整对象替换 data，必须展开旧 data 后再写入） */
+  const toggleLink = (other: MassRecord) => {
+    const isLinked = linkedIds.includes(other.id);
+    const newCurrent = isLinked ? linkedIds.filter((id) => id !== other.id) : [...linkedIds, other.id];
+    setLinkedIds(newCurrent);
+    updateMassRecord(record.id, { ...(record.data || {}), linkedRecordIds: newCurrent });
+    const otherLinked: string[] = Array.isArray(other.data?.linkedRecordIds) ? (other.data!.linkedRecordIds as string[]) : [];
+    const newOther = isLinked ? otherLinked.filter((id) => id !== record.id) : [...otherLinked, record.id];
+    updateMassRecord(other.id, { ...(other.data || {}), linkedRecordIds: newOther });
+    showToast(isLinked ? '已取消关联' : '已关联该记录', 'success');
+  };
+
+  // 附件：收集所有附件数组（包括 attachment / fileList 等字段），同时取出上传时间与分类
   const attachments = useMemo(() => {
     const d = record.data || {};
-    const files: Array<{ uid: string; name: string }> = [];
-    for (const [key, val] of Object.entries(d)) {
-      if (key === 'attachment' || key === 'fileList') continue;
-      if (Array.isArray(val)) {
+    const files: Array<{ uid: string; name: string; time?: string; category?: string; type?: string }> = [];
+    for (const [, val] of Object.entries(d)) {
+      if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object' && val[0].uid && val[0].name) {
         for (const item of val) {
           if (item && typeof item === 'object' && item.uid && item.name) {
-            files.push({ uid: item.uid, name: item.name });
+            const obj = item as Record<string, unknown>;
+            const rawTime = obj.uploadedAt ?? obj.lastModifiedDate ?? obj.lastModified;
+            let time: string | undefined;
+            if (typeof rawTime === 'string') time = rawTime;
+            else if (rawTime instanceof Date) time = rawTime.toISOString();
+            const cat = typeof obj.category === 'string' && obj.category.trim() ? obj.category : '其他';
+            files.push({ uid: item.uid as string, name: item.name as string, time, category: cat, type: typeof obj.type === 'string' ? obj.type : undefined });
           }
         }
       }
     }
-    return files;
+    // 按分类分组（保持出现顺序）
+    const groups: Array<{ category: string; items: typeof files }> = [];
+    const idxMap = new Map<string, number>();
+    for (const f of files) {
+      const c = f.category || '其他';
+      if (!idxMap.has(c)) { idxMap.set(c, groups.length); groups.push({ category: c, items: [] }); }
+      groups[idxMap.get(c)!].items.push(f);
+    }
+    return groups;
   }, [record]);
 
-  // 表单字段（排除 section/attachment）
+  // 附件预览（图片/PDF 点击放大）
+  const [preview, setPreview] = useState<{ url: string; name: string; mime?: string } | null>(null);
+  const openPreview = async (uid: string, name: string) => {
+    const p = await getAttachmentPreview(uid);
+    if (p) setPreview({ url: p.url, name, mime: p.mime });
+    else showToast('无法预览该附件', 'warning');
+  };
+
+  // 收集"属于 repeatable 段"的字段 id：这些字段的值存在数组（listName）里，
+  // 不应在顶层基本信息里以空值重复出现（如"报案人：—"），避免用户误以为个人信息未保存。
+  const repeatableFieldIds = useMemo(() => {
+    const ids = new Set<string>();
+    const mod = findModule(record.moduleId, allModules);
+    for (const tab of mod?.tabs || []) {
+      let inRepeatable = false;
+      for (const f of tab.fields || []) {
+        if (f.type === 'section') {
+          inRepeatable = !!f.repeatable;
+          continue;
+        }
+        if (inRepeatable) ids.add(f.id);
+      }
+    }
+    return ids;
+  }, [record.moduleId, allModules]);
+
+  // 表单字段（排除 section/attachment、属于 repeatable 段的字段、附件内部字段、以及 id 含 attach 的附件类字段；避免英文 "attachment" 字样出现在基本信息）
   const fields = useMemo(() => {
     const mod = findModule(record.moduleId, allModules);
     const tab = mod?.tabs.find(t => t.id === record.tabId) || mod?.tabs[0];
-    return (tab?.fields || []).filter(f => f.type !== 'section' && f.type !== 'attachment');
-  }, [record, allModules]);
+    return (tab?.fields || []).filter(
+      f => f.type !== 'section'
+        && f.type !== 'attachment'
+        && !repeatableFieldIds.has(f.id)
+        && !/^(lastModifiedDate|lastModified|originFileObj|response|xhr|thumbUrl)$/.test(f.id)
+        && !/attach/i.test(f.id)
+        && !isAttachmentValue(record.data?.[f.id])
+    );
+  }, [record, allModules, repeatableFieldIds]);
+
+  const cdStatus = useMemo(() => deriveCdStatus(record, fields), [record, fields]);
+
+  // repeatable 段标题映射：listName → 段中文名（如 reporters → 报案人信息）
+  const sectionLabelMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    const mod = findModule(record.moduleId, allModules);
+    for (const tab of mod?.tabs || []) {
+      for (const f of tab.fields || []) {
+        if (f.type === 'section' && f.listName) map[f.listName] = f.label;
+      }
+    }
+    return map;
+  }, [record.moduleId, allModules]);
 
   // 从字段定义构建中文标签映射
   const fieldLabelMap = useMemo(() => {
@@ -192,240 +312,205 @@ export default function CaseDetail({ record, onClose }: Props) {
     return map;
   }, [fields, record.moduleId, allModules]);
 
-  const textColor = 'var(--color-text)';
-  const mutedColor = 'var(--color-text-secondary)';
-
-  const handleRelatedClick = (rec: MassRecord) => {
-    setEditRecord(rec);
-    setCurrentPage(rec.moduleId);
+  const handleEdit = () => {
+    setEditRecord(record);
+    setCurrentPage(record.moduleId);
     openModal('newRecord');
+    onClose();
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 1000,
-        background: darkMode ? '#0f1114' : '#F8FAFC',
-        display: 'flex', flexDirection: 'column',
-      }}
-    >
-      {/* 顶栏 */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px',
-        background: darkMode ? '#1a1d25' : '#fff',
-        borderBottom: '1px solid var(--color-border)',
-        flexShrink: 0,
-      }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: textColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{caseName}</div>
-          <div style={{ fontSize: 12, color: mutedColor, marginTop: 2 }}>{moduleName} · {fmtDate(record.updatedAt)}</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-          <button
-            type="button"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
-            style={{
-              height: 40, paddingInline: 20, borderRadius: 8,
-              background: darkMode ? '#374151' : '#F3F4F6',
-              color: darkMode ? '#e2e2e6' : '#374151',
-              border: `1px solid ${darkMode ? '#4b5563' : '#D1D5DB'}`,
-              fontSize: 14, fontWeight: 600, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 6,
-              fontFamily: 'inherit',
-              transition: 'all 0.15s',
-            }}
-          >
-            <ArrowLeft size={16} /> 返回
-          </button>
-          <button
-            type="button"
-            onClick={(e) => { e.preventDefault(); setEditRecord(record); setCurrentPage(record.moduleId); openModal('newRecord'); onClose(); }}
-            style={{
-              height: 40, paddingInline: 20, borderRadius: 8,
-              background: 'linear-gradient(135deg, #2563EB, #3B82F6)',
-              color: '#fff',
-              border: 'none',
-              fontSize: 14, fontWeight: 600, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 6,
-              fontFamily: 'inherit',
-              boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
-              transition: 'all 0.15s',
-            }}
-          >
+    <Modal
+      open
+      width={860}
+      onCancel={onClose}
+      maskClosable
+      title={<span style={{ fontWeight: 700, fontSize: 16 }}>查看详情 · {moduleName}</span>}
+      styles={{ body: { maxHeight: '72vh', overflow: 'auto', padding: '20px 24px' } }}
+      footer={
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button type="button" className="cd-btn" onClick={onClose}>关闭</button>
+          <button type="button" className="cd-btn primary" onClick={handleEdit}>
             <Pen size={16} /> 编辑
           </button>
         </div>
-      </div>
-
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* 左侧 tab */}
-        <div style={{
-          width: 180, flexShrink: 0,
-          background: darkMode ? '#1a1d25' : '#fff',
-          borderRight: '1px solid var(--color-border)',
-          padding: '12px 0',
-          display: 'flex', flexDirection: 'column', gap: 2,
-        }}>
-          {TABS.map(tab => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <div
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '10px 16px', cursor: 'pointer',
-                  color: isActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-                  fontWeight: isActive ? 600 : 400,
-                  background: isActive ? 'var(--color-primary-bg)' : 'transparent',
-                  borderRight: isActive ? '3px solid var(--color-primary)' : '3px solid transparent',
-                  transition: 'all 0.15s',
-                }}
-              >
-                <Icon size={16} />
-                <span style={{ fontSize: 13 }}>{tab.label}</span>
-              </div>
-            );
-          })}
-          {/* 统计快览 */}
-          <div style={{ marginTop: 'auto', padding: '12px 16px', borderTop: '1px solid var(--color-border-light)' }}>
-            <div style={{ fontSize: 11, color: mutedColor, marginBottom: 6, fontWeight: 600 }}>📊 关联统计</div>
-            <div style={{ fontSize: 12, color: textColor }}>
-              <div>关联记录 <b>{relatedRecords.length}</b> 条</div>
-              <div>附件 <b>{attachments.length}</b> 个</div>
-              <div>时间线 <b>{timeline.length}</b> 项</div>
-            </div>
+      }
+    >
+      {/* 头部 */}
+      <div className="cd-view-head">
+        <div className={`cd-view-ico ${cdStatus ? 'cd-st-' + cdStatus.kind : ''}`}><FileText size={24} /></div>
+        <div className="cd-view-main">
+          <div className="cd-view-title">{caseName}</div>
+          <div className="cd-view-sub">
+            更新于 {fmtDate(record.updatedAt)}
+            {cdStatus ? (
+              <span className={`badge ${cdStatus.kind === 'done' ? 'badge-success' : cdStatus.kind === 'warning' ? 'badge-warning' : cdStatus.kind === 'danger' ? 'badge-danger' : 'badge-info'}`} style={{ marginLeft: 10 }}>
+                {cdStatus.label}
+              </span>
+            ) : null}
           </div>
         </div>
+      </div>
 
-        {/* 右侧内容 */}
-        <div style={{ flex: 1, overflow: 'auto', padding: 20 }}>
-          {/* 基本信息 */}
-          {activeTab === 'info' && (
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-              <Descriptions bordered column={2} size="small">
-                {fields.map(f => (
-                  <Descriptions.Item key={f.id} label={fieldLabelMap[f.id] || f.label} span={f.type === 'textarea' ? 2 : 1}>
-                    {fmtValue(record.data?.[f.id])}
-                  </Descriptions.Item>
-                ))}
-              </Descriptions>
-              {/* 显示 repeatable section 数据（如嫌疑人信息） */}
-              {Object.entries(record.data || {}).map(([key, val]) => {
-                if (!Array.isArray(val) || val.length === 0 || typeof val[0] !== 'object') return null;
-                const sectionLabel = key === 'suspects' ? '嫌疑人信息' : key === 'coerciveMeasures' ? '强制措施' : key === 'items' ? '详细信息' : key;
-                return (
-                  <div key={key} style={{ marginTop: 20 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-primary)', marginBottom: 10, borderBottom: '2px solid var(--color-primary)', paddingBottom: 4 }}>
-                      {sectionLabel}（{val.length} 条）
-                    </div>
-                    {val.map((item: Record<string, unknown>, idx: number) => (
-                      <div key={idx} style={{ border: '1px solid var(--color-border)', borderRadius: 8, padding: 12, marginBottom: 10, background: 'var(--color-surface-hover)' }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: mutedColor, marginBottom: 8 }}>#{idx + 1}</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
-                          {Object.entries(item).map(([k, v]) => {
-                            if (v === null || v === undefined || v === '') return null;
-                            // 跳过内部字段
-                            if (k.startsWith('__') || k === 'uid' || k === 'lastModified' || k === 'percent' || k === 'status' || k === 'size') return null;
-                            return (
-                              <div key={k} style={{ fontSize: 12, lineHeight: 1.8 }}>
-                                <span style={{ color: mutedColor }}>{fieldLabelMap[k] || k}：</span>
-                                <span style={{ color: textColor, fontWeight: 500 }}>{fmtValue(v)}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
+      {/* 基本信息（表格行式：标签 | 值） */}
+      <div className="cd-content-title" style={{ marginTop: 18 }}>基本信息</div>
+      {fields.length === 0 ? (
+        <div className="cd-empty">该记录暂无可展示的基本信息字段</div>
+      ) : (
+        <div className="cd-table">
+          {fields.map(f => (
+            <div key={f.id} className="cd-tr">
+              <div className="cd-td-label">{fieldLabelMap[f.id] || f.label}</div>
+              <div className="cd-td-val">{fmtValue(record.data?.[f.id])}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* repeatable 段（如嫌疑人信息 / 报案人信息），排除附件数组 */}
+      {Object.entries(record.data || {}).map(([key, val]) => {
+        if (!Array.isArray(val) || val.length === 0 || typeof val[0] !== 'object') return null;
+        if (isAttachmentValue(val)) return null; // 附件数组统一在「附件」区展示
+        const sectionLabel = sectionLabelMap[key]
+          || FIELD_LABELS[key as keyof typeof FIELD_LABELS]
+          || (key === 'suspects' ? '嫌疑人信息' : key === 'coerciveMeasures' ? '强制措施' : key === 'items' ? '详细信息' : key);
+        return (
+          <div key={key} className="cd-sec">
+            <div className="cd-sec-title">{sectionLabel}（{val.length} 条）</div>
+            {val.map((item: Record<string, unknown>, idx: number) => (
+              <div key={idx} className="cd-sec-card">
+                <div className="cd-sec-card-idx">#{idx + 1}</div>
+                <div className="cd-sec-grid">
+                  {Object.entries(item).map(([k, v]) => {
+                    if (v === null || v === undefined || v === '') return null;
+                    // 附件内部字段：不在 repeatable 段里展示
+                    if (k.startsWith('__') || k === 'uid' || k === 'lastModified' || k === 'lastModifiedDate' || k === 'percent' || k === 'status' || k === 'size' || k === 'originFileObj' || k === 'response' || k === 'xhr' || k === 'thumbUrl') return null;
+                    if (/attach/i.test(k)) return null;
+                    if (isAttachmentValue(v)) return null;
+                    return (
+                      <div key={k} className="cd-sec-kv">
+                        <span className="cd-sec-k">{fieldLabelMap[k] || FIELD_LABELS[k as keyof typeof FIELD_LABELS] || k}：</span>
+                        <span className="cd-sec-v">{fmtValue(v)}</span>
                       </div>
-                    ))}
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+
+      {/* 附件（按分类分组） */}
+      <div className="cd-content-title" style={{ marginTop: 18 }}>附件</div>
+      {attachments.length === 0 ? (
+        <div className="cd-empty">暂无附件</div>
+      ) : (
+        <div className="cd-att-groups">
+          {attachments.map((g) => (
+            <div key={g.category} className="cd-att-group">
+              <div className="cd-att-group-head">
+                <span className="cd-att-cat">{g.category}</span>
+                <span className="cd-att-cat-count">{g.items.length}</span>
+              </div>
+              {g.items.map((att) => {
+                const isImage = att.type?.startsWith('image/');
+                const isPdf = att.type === 'application/pdf';
+                return (
+                  <div key={att.uid} className="cd-att">
+                    {isImage ? (
+                      <button className="cd-att-thumb-btn" title="点击放大" onClick={() => openPreview(att.uid, att.name)}>
+                        <ImageThumb uid={att.uid} />
+                      </button>
+                    ) : isPdf ? (
+                      <span className="cd-att-icon pdf"><FileText size={15} /></span>
+                    ) : (
+                      <span className="cd-att-icon"><Paperclip size={15} /></span>
+                    )}
+                    <div className="cd-att-main">
+                      <span className="cd-att-name">{att.name}</span>
+                      {att.time ? <span className="cd-att-time">上传时间：{fmtValue(att.time)}</span> : null}
+                    </div>
+                    <div className="cd-att-acts">
+                      {(isImage || isPdf) && (
+                        <button className="cd-att-btn sm" onClick={() => openPreview(att.uid, att.name)}>预览</button>
+                      )}
+                      <button className="cd-att-btn" onClick={async () => {
+                        try { await downloadAttachment(att.uid); } catch { /* ignore */ }
+                      }}>
+                        <Download size={15} /> 下载
+                      </button>
+                    </div>
                   </div>
                 );
               })}
-            </motion.div>
-          )}
-
-          {/* 关联记录 */}
-          {activeTab === 'related' && (
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-              {relatedRecords.length === 0 ? (
-                <Empty description="暂无关联记录" />
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {relatedRecords.map(rec => (
-                    <div
-                      key={rec.id}
-                      className="card hover-lift"
-                      style={{ padding: 14, cursor: 'pointer' }}
-                      onClick={() => handleRelatedClick(rec)}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <Tag color="blue" style={{ fontSize: 11 }}>{MODULE_NAMES[rec.moduleId] || rec.moduleId}</Tag>
-                          <span style={{ fontSize: 13, fontWeight: 500, marginLeft: 8, color: textColor }}>
-                            {String(rec.data?.caseName || rec.data?.suspect || rec.data?.title || '').slice(0, 24)}
-                          </span>
-                        </div>
-                        <span style={{ fontSize: 11, color: mutedColor }}>{fmtDate(rec.updatedAt)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </motion.div>
-          )}
-
-          {/* 时间线 */}
-          {activeTab === 'timeline' && (
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-              {timeline.length === 0 ? (
-                <Empty description="暂无时间线" />
-              ) : (
-                <div style={{ position: 'relative', paddingLeft: 24 }}>
-                  <div style={{ position: 'absolute', left: 8, top: 8, bottom: 8, width: 2, background: 'var(--color-primary)', opacity: 0.2 }} />
-                  {timeline.map((rec, i) => (
-                    <div key={rec.id} style={{ position: 'relative', paddingBottom: 16 }}>
-                      <div style={{ position: 'absolute', left: -20, top: 4, width: 10, height: 10, borderRadius: '50%', background: i === 0 ? 'var(--color-primary)' : 'var(--color-border)', border: '2px solid var(--color-surface)' }} />
-                      <div style={{ fontSize: 12, color: mutedColor, marginBottom: 4 }}>
-                        <Tag color="blue" style={{ fontSize: 10 }}>{MODULE_NAMES[rec.moduleId] || rec.moduleId}</Tag>
-                        <span style={{ marginLeft: 8 }}>{fmtDate(rec.updatedAt)}</span>
-                      </div>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: textColor, cursor: 'pointer' }}
-                        onClick={() => handleRelatedClick(rec)}>
-                        {String(rec.data?.caseName || rec.data?.title || '').slice(0, 30) || '无标题'}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </motion.div>
-          )}
-
-          {/* 附件 */}
-          {activeTab === 'attachments' && (
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-              {attachments.length === 0 ? (
-                <Empty description="暂无附件" />
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {attachments.map(att => (
-                    <div key={att.uid} className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 13, color: textColor }}>📎 {att.name}</span>
-                      <button className="btn btn-sm btn-ghost" onClick={async () => {
-                        try { await downloadAttachment(att.uid); } catch { /* ignore */ }
-                      }}>
-                        <Download size={12} /> 下载
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </motion.div>
-          )}
+            </div>
+          ))}
         </div>
-      </div>
-    </motion.div>
+      )}
+
+      {/* 附件预览弹窗：图片直接展示，PDF 内嵌 iframe 浏览 */}
+      <Modal open={!!preview} footer={null} onCancel={() => setPreview(null)} width={preview?.mime === 'application/pdf' ? 860 : 720} title={preview?.name || '预览'} styles={{ body: { padding: 12 } }}>
+        {preview ? (
+          preview.mime === 'application/pdf' ? (
+            <iframe src={preview.url} title={preview.name} style={{ width: '100%', height: '70vh', border: 0, borderRadius: 8 }} />
+          ) : (
+            <img src={preview.url} alt={preview.name} style={{ width: '100%', borderRadius: 8 }} />
+          )
+        ) : null}
+      </Modal>
+
+      {/* 关联与脉络：默认收起，点击展开（经侦高价值关联能力，但不默认铺开） */}
+      <div className="cd-content-title" style={{ marginTop: 18 }}>关联与脉络</div>
+      <Collapse
+        ghost
+        size="small"
+        defaultActiveKey={[]}
+        items={[
+          {
+            key: 'rel',
+            label: `关联记录（${displayedRelated.length}）`,
+            children: displayedRelated.length === 0 ? (
+              <div className="cd-empty">暂无关联记录（可在右侧点「关联」手动建立）</div>
+            ) : (
+              <div className="cd-rel-list">
+                {displayedRelated.map((r) => (
+                  <div key={r.id} className="cd-rel-item">
+                    <div className="cd-rel-main" onClick={() => onOpenRelated?.(r)}>
+                      <span className="cd-rel-title">{deriveRecordTitle(r.data || {})}</span>
+                      <span className="cd-rel-meta">{MODULE_NAMES[r.moduleId] || r.moduleId}</span>
+                    </div>
+                    <button
+                      className={`cd-rel-link-btn ${linkedSet.has(r.id) ? 'on' : ''}`}
+                      title={linkedSet.has(r.id) ? '点击取消关联' : '关联此记录'}
+                      onClick={(e) => { e.stopPropagation(); toggleLink(r); }}
+                    >
+                      {linkedSet.has(r.id) ? '已关联' : '关联'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ),
+          },
+          {
+            key: 'tl',
+            label: `时间线（${timeline.length}）`,
+            children: timeline.length === 0 ? (
+              <div className="cd-empty">暂无时间线</div>
+            ) : (
+              <div className="cd-tl-list">
+                {timeline.map(r => (
+                  <div key={r.id} className="cd-tl-item" onClick={() => onOpenRelated?.(r)}>
+                    <span className="cd-tl-dot" />
+                    <span className="cd-tl-title">{deriveRecordTitle(r.data || {})}</span>
+                    <span className="cd-tl-time">{fmtDateTime(String(r.updatedAt))}</span>
+                  </div>
+                ))}
+              </div>
+            ),
+          },
+        ]}
+      />
+    </Modal>
   );
 }

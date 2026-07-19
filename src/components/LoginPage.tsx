@@ -4,10 +4,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import { User, Lock, Eye, EyeOff } from "lucide-react";
 import { APP_VERSION } from "../version";
 import { useAppStore } from "../store/appStore";
-import { hashPassword, verifyPassword } from "../utils/crypto";
+import { verifyPassword } from "../utils/crypto";
+import { isElectron as isElectronEnv } from "../lib/env";
 
 interface Props {
-  onLogin: (name: string, role: string) => void;
+  onLogin: (name: string, role: string, extra?: { badge?: string; phone?: string; department?: string }) => void;
   onRegister: () => void;
 }
 
@@ -27,6 +28,11 @@ interface StoredUser {
   name: string;
   role?: string;
   roleName?: string;
+  badge?: string;
+  phone?: string;
+  position?: string;
+  /** 审核状态：'pending' 表示已注册但等待管理员审核，不能登录 */
+  status?: string;
 }
 
 const DEFAULT_CREDENTIALS: SavedCredentials = {
@@ -221,7 +227,11 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
         const pwdMatch = await verifyPassword(savedCredentials.password, userByAccount.password);
         if (pwdMatch) {
           saveAccountToHistory(savedCredentials.account);
-          onLogin(userByAccount.name, userByAccount.roleName || userByAccount.role || "普通用户");
+          onLogin(
+            userByAccount.name,
+            userByAccount.roleName || userByAccount.role || "普通用户",
+            { badge: userByAccount.badge || "", phone: userByAccount.phone || "", department: userByAccount.position || "" }
+          );
           return;
         }
       }
@@ -291,9 +301,13 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
         }
 
         if (found) {
-          // 已注册用户：使用注册时的真实姓名
+          // 已注册用户：使用注册时的真实姓名，并回填注册时填写的档案
           saveAccountToHistory(account);
-          onLogin(found.name, found.roleName || found.role || "普通用户");
+          onLogin(
+            found.name,
+            found.roleName || found.role || "普通用户",
+            { badge: found.badge || "", phone: found.phone || "", department: found.position || "" }
+          );
         } else {
           // 内置默认账号（admin/manager/user）
           saveAccountToHistory(account);
@@ -337,11 +351,11 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
         backgroundSize: "32px 32px, 128px 128px, 128px 128px",
       };
 
-  const isElectron = typeof window !== "undefined" && (window as any).electronAPI?.isElectron;
+  const isElectron = isElectronEnv();
 
   const handleCloseLoginPage = () => {
-    if ((window as any).electronAPI?.close) {
-      (window as any).electronAPI.close();
+    if (window.electronAPI?.close) {
+      window.electronAPI.close();
     } else {
       try { window.close(); } catch { /* not supported */ }
     }
@@ -363,16 +377,16 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
         <div
           style={{
             height: 28, flexShrink: 0, display: 'flex', alignItems: 'center',
-            WebkitAppRegion: 'drag' as any,
+            WebkitAppRegion: 'drag',
             background: '#F0F2F5',
             paddingLeft: 12,
             borderBottom: '1px solid #E5E7EB',
           }}
         >
           <span style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'JetBrains Mono',monospace", flex: 1 }}>
-            经侦大队工作记录管理系统-Win7版-Win7版
+            经侦大队工作记录管理系统
           </span>
-          <div style={{ WebkitAppRegion: 'no-drag' as any, display: 'flex', paddingRight: 4 }}>
+          <div style={{ WebkitAppRegion: 'no-drag', display: 'flex', paddingRight: 4 }}>
             <div onClick={handleCloseLoginPage} title="关闭"
               style={{ width: 36, height: 22, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'rgba(255,255,255,0.5)', fontSize: 13 }}
               onMouseEnter={e => { e.currentTarget.style.background = '#E81123'; e.currentTarget.style.color = '#fff'; }}
@@ -462,7 +476,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
                 marginBottom: 6,
               }}
             >
-              <span style={{ color: "#2563EB" }}>经侦大队工作记录管理系统-Win7版-Win7版</span>
+              <span style={{ color: "#2563EB" }}>经侦大队工作记录管理系统</span>
             </motion.h2>
 
             {!lowPerfMode && (
@@ -857,7 +871,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
               fontFamily: "'JetBrains Mono',monospace",
             }}
           >
-            © 2026 陈洪涛 · 经侦大队工作记录管理系统-Win7版-Win7版 {APP_VERSION}
+            © 2026 陈洪涛 · 经侦大队工作记录管理系统 {APP_VERSION}
           </span>
           <span
             style={{

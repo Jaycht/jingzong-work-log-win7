@@ -1,11 +1,11 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, CheckCircle, Sparkles, RefreshCw, Wrench } from "lucide-react";
-import { getCurrentVersion } from "../store/versionStore";
+import { ArrowRight, Sparkles, RefreshCw, Wrench } from "lucide-react";
+import { getCurrentVersion } from "../store/appVersionStore";
 
 interface ParsedEntry {
   version: string;
-  type: "新增" | "优化" | "修复" | "重构" | "发布";
+  type: "新增" | "优化" | "修复" | "重构" | "发布" | "增强" | "其他";
   item: string;
 }
 
@@ -21,14 +21,25 @@ interface VersionGroup {
  * into multiple ParsedEntry objects (one per comma-separated item).
  */
 function parseChangelogEntry(raw: string): ParsedEntry[] {
-  const match = raw.match(/^(V[\d.]+)\s+(新增|优化|修复|重构|发布|增强)\s*[-—]\s*(.+)$/);
-  if (!match) return [];
-  const version = match[1];
-  const type = match[2] as ParsedEntry["type"];
-  const content = match[3];
-  const parts = content.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
-  if (parts.length === 0) parts.push(content.trim());
-  return parts.map((item) => ({ version, type, item }));
+  // L-3：扩展类型集合，覆盖 功能/安全/架构/清理/构建/测试 等，避免条目被静默丢弃
+  const match = raw.match(/^(V[\d.]+)\s+(新增|优化|修复|重构|发布|增强|功能|安全|架构|清理|构建|测试|其他)\s*[-—]\s*(.+)$/);
+  if (match) {
+    const version = match[1];
+    const type = match[2] as ParsedEntry["type"];
+    const content = match[3];
+    const parts = content.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+    if (parts.length === 0) parts.push(content.trim());
+    return parts.map((item) => ({ version, type, item }));
+  }
+  // 兜底：无法识别类型前缀时归入“其他”，保证条目仍被展示（L-3）
+  const vm = raw.match(/^(V[\d.]+)\s+(.+)$/);
+  if (vm) {
+    const content = vm[2].replace(/^[-—]\s*/, "").trim();
+    const parts = content.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+    if (parts.length === 0) parts.push(content);
+    return parts.map((item) => ({ version: vm[1], type: "其他", item }));
+  }
+  return [];
 }
 
 /** Build version groups from the flat changelog array, newest first */
@@ -82,17 +93,19 @@ export default function Version() {
   const versionGroups = useMemo(() => buildVersionGroups(versionInfo.changelog), [versionInfo.changelog]);
 
   // Count by type across all entries
+  // L-2：statCounts 补齐 增强，并兜底归并未识别类型，避免统计卡片出现 undefined
   const statCounts = useMemo(() => {
-    let 新增 = 0, 优化 = 0, 修复 = 0;
+    let 新增 = 0, 优化 = 0, 修复 = 0, 增强 = 0;
     for (const raw of versionInfo.changelog) {
       const entries = parseChangelogEntry(raw);
       for (const e of entries) {
         if (e.type === "新增") 新增++;
-        else if (e.type === "优化" || e.type === "重构" || e.type === "发布") 优化++;
+        else if (e.type === "增强") 增强++;
         else if (e.type === "修复") 修复++;
+        else 优化++; // 优化 / 重构 / 发布 / 其他 统一计入“优化”
       }
     }
-    return { 新增, 优化, 修复 };
+    return { 新增, 优化, 修复, 增强 };
   }, [versionInfo.changelog]);
 
   const statData = CHANGELOG_META.map((m) => ({
@@ -111,7 +124,7 @@ export default function Version() {
         <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 200, damping: 18, delay: 0.1 }} style={{ marginBottom: 20 }}>
           <img src="./logo.png" alt="" style={{ width: 360, height: 360, objectFit: "contain" }} />
         </motion.div>
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ fontSize: 22, fontWeight: 700, color: "var(--color-text)", marginBottom: 6, letterSpacing: 1 }}>{"经侦大队工作记录管理系统-Win7版-Win7版"}</motion.div>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ fontSize: 22, fontWeight: 700, color: "var(--color-text)", marginBottom: 6, letterSpacing: 1 }}>{"经侦大队工作记录管理系统"}</motion.div>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.25 }} style={{ fontSize: 32, fontWeight: 900, color: "#155A8A", marginBottom: 8, letterSpacing: 2, fontFamily: "'Courier New', monospace" }}>{versionInfo.version}</motion.div>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 22, letterSpacing: 0.5 }}>Economic Investigation Work Log Registration System</motion.div>
         <div style={{ width: 60, height: 2, background: "linear-gradient(90deg, transparent, #1B5E9B, transparent)", margin: "0 auto 22px" }} />
@@ -154,8 +167,14 @@ export default function Version() {
                 <span style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>{versionInfo.updatedAt}</span>
               </div>
               {g.items.length > 0 && g.items.map((item) => (
-                <div key={item} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 3 }}>
+                <div key={`i-${item}`} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 3 }}>
                   <ArrowRight size={12} color="#388E3C" style={{ marginTop: 2, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12.5, color: "var(--color-text-secondary)" }}>{item}</span>
+                </div>
+              ))}
+              {g.fixes.length > 0 && g.fixes.map((item) => (
+                <div key={`f-${item}`} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 3 }}>
+                  <Wrench size={12} color="#E67E22" style={{ marginTop: 2, flexShrink: 0 }} />
                   <span style={{ fontSize: 12.5, color: "var(--color-text-secondary)" }}>{item}</span>
                 </div>
               ))}

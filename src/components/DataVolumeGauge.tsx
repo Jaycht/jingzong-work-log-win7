@@ -7,28 +7,13 @@ import { motion } from 'framer-motion';
 import { HardDrive, Database, FileArchive, FileText } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 import { getMassRecords } from '../store/massStore';
-
-const MODULE_LABELS: Record<string, string> = {
-  'office-finance-assets': '经费保障', 'office-party-attendance': '党建考勤',
-  'office-doc-report': '文件报表', 'office-cluster': '集群协查',
-  'office-other': '其他事项', 'mass-clue': '涉众线索',
-  'mass-statistics': '涉众统计', 'mass-petition': '信访反馈',
-  'mass-interview': '约谈管理', 'mass-publicity': '宣传工作',
-  'legal-report-case': '接报案', 'legal-case-ledger': '案件台账',
-  'legal-special-action': '专项行动', 'squad-case': '中队案件',
-  'squad-daily': '中队日报', 'squad-coercive': '强制措施',
-  'squad-property': '涉案财物', 'evidence-clue': '线索登记',
-  'evidence-request': '调证登记', 'evidence-freeze': '资金查控',
-  'evidence-phone-collection': '手机采集', 'evidence-report': '资金分析',
-};
-
-/** 估算字符串的字节数 */
-function estimateSize(str: string): number {
-  return new Blob([str]).size;
-}
+import { useDataChanged } from '../store/dataEvents';
+import { MODULE_NAMES } from '../moduleConfig';
 
 export default function DataVolumeGauge() {
   const darkMode = useAppStore((s) => s.darkMode);
+  // 依赖数据版本号：IndexedDB 就绪 / 数据变更后自动重读（H-3）
+  const dataVersion = useDataChanged();
 
   const stats = useMemo(() => {
     const records = getMassRecords();
@@ -56,12 +41,12 @@ export default function DataVolumeGauge() {
     }
 
     const topModules = Object.entries(moduleCounts)
-      .map(([id, count]) => ({ id, label: MODULE_LABELS[id] || id, count }))
+      .map(([id, count]) => ({ id, label: MODULE_NAMES[id] || id, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
 
     return { totalRecords, totalBytes, attachmentCount, topModules };
-  }, []);
+  }, [dataVersion]);
 
   // 格式化字节
   const fmtBytes = (bytes: number) => {
@@ -75,7 +60,24 @@ export default function DataVolumeGauge() {
   const usagePercent = Math.min(100, (stats.totalBytes / MAX_LOCALSTORAGE) * 100);
   const isNearLimit = usagePercent > 70;
 
-  if (stats.totalRecords === 0) return null;
+  // 真正无记录时才隐藏；IndexedDB 未就绪时先渲染占位，待就绪后自动重读（H-3）
+  if (stats.totalRecords === 0) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.28 }}
+        style={{
+          background: darkMode ? 'rgba(28, 31, 38, 0.75)' : '#fff',
+          borderRadius: 12,
+          border: darkMode ? '1px solid rgba(163, 201, 255, 0.12)' : '1px solid #E5E7EB',
+          padding: '14px 18px', fontSize: 13, color: darkMode ? '#8c919a' : '#9CA3AF',
+        }}
+      >
+        数据概览 · 暂无记录
+      </motion.div>
+    );
+  }
 
   // 颜色
   const getBarColor = () => {

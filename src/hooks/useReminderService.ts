@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { getDailyNotes } from '../store/dailyNotesStore';
-import { getMassRecords } from '../store/massStore';
+import { getMassRecords, type MassRecord } from '../store/massStore';
 
-const isElectron = typeof window !== 'undefined' && (window as any).electronAPI?.isElectron;
+import { isElectron as isElectronEnv } from '../lib/env';
+import { LEGAL_DEADLINE_RULES } from '../constants/legalDeadlines';
 
 const DISMISSED_KEY = 'jingzong.reminder.dismissed';
 const TRIGGERED_KEY = 'jingzong.reminder.triggered';
@@ -47,45 +48,33 @@ export function dismissReminder(id: string) {
   addDismissed(id);
 }
 
-const LEGAL_RULES: Array<{ label: string; field: string; days: number }> = [
-  { label: '受案→立案', field: 'receiveDate', days: 7 },
-  { label: '刑事拘留', field: 'criminalDetentionDate', days: 30 },
-  { label: '侦查羁押', field: 'filingDate', days: 60 },
-  { label: '取保候审', field: 'bailDate', days: 365 },
-  { label: '监视居住', field: 'residentialSurveillanceDate', days: 180 },
-];
-
-function parseDateField(val: any): Date | null {
-  if (!val) return null;
-  if (typeof val === 'string') { const d = new Date(val); return isNaN(d.getTime()) ? null : d; }
-  if (val.$d) { const d = new Date(val.$d); return isNaN(d.getTime()) ? null : d; }
-  if (val._isValid && val.toDate) { const d = val.toDate(); return isNaN(d.getTime()) ? null : d; }
-  return null;
-}
-
-function checkLegalDeadlines(records: any[]): Array<{ id: string; title: string; body: string }> {
+function checkLegalDeadlines(records: MassRecord[]): Array<{ id: string; title: string; body: string }> {
   const alerts: Array<{ id: string; title: string; body: string }> = [];
-  const now = new Date();
   for (const rec of records) {
-    const data = rec.data || rec;
-    const suspects = data.suspects || [];
-    for (const rule of LEGAL_RULES) {
-      const targets = suspects.length > 0 ? suspects : [data];
+    const data = (rec.data || rec) as Record<string, unknown>;
+    const suspects = (data.suspects as unknown[]) || [];
+    // 统一以 legalDeadlines 单一数据源为准（C-M2）：含模块范围与正确的日期字段
+    for (const rule of LEGAL_DEADLINE_RULES) {
+      if (!rule.moduleIds.includes(rec.moduleId)) continue;
+      const targets: unknown[] = suspects.length > 0 ? suspects : [data];
       for (const target of targets) {
-        const d = parseDateField(target[rule.field]);
-        if (!d) continue;
-        const deadline = new Date(d);
-        deadline.setDate(deadline.getDate() + rule.days);
-        const diffDays = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays <= 7 && diffDays >= -30) {
-          const caseName = data.caseName || data.caseNo || '';
-          const suspectName = target.suspectName || '';
-          alerts.push({
-            id: `legal-${rec.id}-${rule.field}-${suspectName || 'main'}`,
-            title: '法律时限预警',
-            body: `${caseName}${suspectName ? ' ' + suspectName : ''} ${rule.label}剩余${diffDays}天`,
-          });
-        }
+        const targetObj = target as Record<string, unknown>;
+        const raw = targetObj[rule.dateField];
+        if (!raw || typeof raw !== 'string') continue;
+        try {
+          const deadline = new Date(rule.calcDeadline(raw));
+          if (isNaN(deadline.getTime())) continue;
+          const diffDays = Math.ceil((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+          if (diffDays <= 7 && diffDays >= -30) {
+            const caseName = String(data.caseName ?? data.caseNo ?? '');
+            const suspectName = String(targetObj.suspectName ?? '');
+            alerts.push({
+              id: `legal-${rec.id}-${rule.id}-${suspectName || 'main'}`,
+              title: '法律时限预警',
+              body: `${caseName}${suspectName ? ' ' + suspectName : ''} ${rule.label}剩余${diffDays}天`,
+            });
+          }
+        } catch { /* ignore */ }
       }
     }
   }
@@ -96,19 +85,20 @@ export function useReminderService() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (!isElectron) return;
+    if (!isElectronEnv()) return;
 
     // 监听通知窗口的"稍后提醒"和"不再提醒"操作
-    const api = (window as any).electronAPI;
+    const api = window.electronAPI;
+    const cleanups: Array<() => void> = [];
     if (api.onReminderSnoozed) {
-      api.onReminderSnoozed((data: { minutes: number; noteId: string }) => {
+      cleanups.push(api.onReminderSnoozed((data: { minutes: number; noteId: string }) => {
         if (data && data.noteId) snoozeReminder(data.noteId, data.minutes);
-      });
+      }));
     }
     if (api.onReminderDismissed) {
-      api.onReminderDismissed((data: { noteId: string }) => {
+      cleanups.push(api.onReminderDismissed((data: { noteId: string }) => {
         if (data && data.noteId) dismissReminder(data.noteId);
-      });
+      }));
     }
 
     function check() {
@@ -146,6 +136,7 @@ export function useReminderService() {
             `${note.title || '未命名记录'} - ${note.type}`,
             note.reminder.sound || '',
             note.id,
+            { type: note.type, priority: note.priority, date: note.date },
           );
           markTriggered(note.id);
         }
@@ -170,6 +161,9 @@ export function useReminderService() {
     check();
     intervalRef.current = setInterval(check, 5000);
 
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      cleanups.forEach((fn) => typeof fn === 'function' && fn());
+    };
   }, []);
 }

@@ -1,12 +1,13 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
+import { Button } from 'antd';
 import { FileArchive, FileText, Image, File, Download, Search, Trash2, CheckSquare, Square } from 'lucide-react';
 import JSZip from 'jszip';
 import { getAllAttachments, getAttachment, downloadAttachment, deleteAttachment } from '../store/attachmentStore';
 import { getBaseModules } from '../moduleConfig';
 import type { AttachmentRecord } from '../store/attachmentStore';
 import { useAppStore } from '../store/appStore';
-import { removeAttachmentRefsFromAllRecords } from '../store/massStore';
+import { removeAttachmentRefsFromAllRecords, cleanupOrphanAttachments } from '../store/massStore';
 
 const FILE_ICONS: Record<string, React.FC<{ size?: number; color?: string }>> = {
   pdf: FileText,
@@ -62,7 +63,21 @@ export default function Attachments() {
   const [dbAttachments, setDbAttachments] = useState<AttachmentRecord[]>([]);
   // 多选：存储选中项的 id 集合
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [cleaning, setCleaning] = useState(false);
   const modules = useMemo(() => getBaseModules(), []);
+
+  const handleCleanupOrphans = async () => {
+    setCleaning(true);
+    try {
+      const n = await cleanupOrphanAttachments();
+      showToast(n > 0 ? `已清理 ${n} 个孤儿附件` : '未发现孤儿附件', n > 0 ? 'success' : 'info');
+      loadAttachments();
+    } catch (e) {
+      showToast('清理失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error');
+    } finally {
+      setCleaning(false);
+    }
+  };
 
   const loadAttachments = useCallback(() => {
     getAllAttachments().then((list) => setDbAttachments(list)).catch(() => {});
@@ -74,13 +89,13 @@ export default function Attachments() {
 
   // 异步检查 Electron 附件文件的本地完整性
   useEffect(() => {
-    if (!(window as any).electronAPI?.checkAttachmentFile) return;
+    if (!window.electronAPI?.checkAttachmentFile) return;
     const checkAll = async () => {
       const map: Record<string, boolean> = {};
       for (const att of dbAttachments) {
         if (att.filePath) {
           try {
-            const result = await (window as any).electronAPI.checkAttachmentFile(att.filePath);
+            const result = await window.electronAPI.checkAttachmentFile(att.filePath);
             map[att.id] = result.exists;
           } catch { map[att.id] = false; }
         }
@@ -150,8 +165,8 @@ export default function Attachments() {
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       const zipBuffer = await zipBlob.arrayBuffer();
 
-      if ((window as any).electronAPI?.showSaveDialog) {
-        const result = await (window as any).electronAPI.showSaveDialog(
+      if (window.electronAPI?.showSaveDialog) {
+        const result = await window.electronAPI.showSaveDialog(
           '附件打包_' + new Date().toISOString().slice(0, 10) + '.zip',
           Array.from(new Uint8Array(zipBuffer))
         );
@@ -219,11 +234,12 @@ export default function Attachments() {
             style={{ width: 42, height: 42, borderRadius: 11, background: 'linear-gradient(135deg, #1B5E9B, #2E7DCA)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 3px 10px rgba(27,94,155,.3)' }}>
             <FileArchive size={20} color="#fff" />
           </motion.div>
-          <div>
-            <div style={{ fontSize: 19, fontWeight: 700, color: 'var(--color-text)' }}>附件档案</div>
-            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 1 }}>所有工作记录中的附件材料 · 集中查看</div>
-          </div>
+        <div>
+          <div style={{ fontSize: 19, fontWeight: 700, color: 'var(--color-text)' }}>附件档案</div>
+          <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 1 }}>所有工作记录中的附件材料 · 集中查看</div>
         </div>
+        <Button size="small" icon={<Trash2 size={14} />} loading={cleaning} onClick={handleCleanupOrphans}>清理孤儿附件</Button>
+      </div>
       </motion.div>
 
       <div className="panel" style={{ padding: 16 }}>

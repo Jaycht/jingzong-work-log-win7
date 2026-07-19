@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { History, User, FileText, Download } from 'lucide-react';
+import { History, User, FileText } from 'lucide-react';
 import { useAppStore } from "../store/appStore"
 import { getOperationLogs, clearOperationLogs } from '../store/operationLogStore';
-import { exportOperationLog } from '../utils/excelUtils';
+import { formatBySetting } from '../utils/format';
 import type { OperationLog as OpLog } from '../store/operationLogStore';
 
 const TYPE_COLORS: Record<string, { bg: string; color: string; label: string }> = {
@@ -17,6 +17,12 @@ const TYPE_COLORS: Record<string, { bg: string; color: string; label: string }> 
   import: { bg: '#FFF3E0', color: '#E67E22', label: '导入' },
   backup: { bg: '#E0F7FA', color: '#00ACC1', label: '备份' },
 };
+
+// 兜底：日志类型未在上方定义时避免 undefined 访问崩溃（L-7）
+const DEFAULT_TYPE_META = { bg: '#EEEEEE', color: '#616161', label: '其他' };
+function typeMeta(t: string) {
+  return TYPE_COLORS[t] ?? DEFAULT_TYPE_META;
+}
 
 export default function OperationLog() {
     const showToast = useAppStore((s) => s.showToast);
@@ -67,11 +73,6 @@ export default function OperationLog() {
             style={{ height: 34, padding: '0 14px', background: 'var(--color-surface)', color: '#DC2626', border: '1.5px solid #DC2626', borderRadius: 8, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
             清空日志
           </motion.button>
-          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-            onClick={() => { showToast('正在导出日志...', 'info'); exportOperationLog(); }}
-            style={{ height: 34, padding: '0 14px', background: 'var(--color-surface)', color: '#1B5E9B', border: '1.5px solid #1B5E9B', borderRadius: 8, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
-            <Download size={14} />导出日志
-          </motion.button>
         </div>
       </motion.div>
 
@@ -113,16 +114,16 @@ export default function OperationLog() {
             </div>
           ) : logs.map((log, i) => (
             <motion.div
-              key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
+              key={log.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.4 + i * 0.06 }}
               whileHover={{ background: 'var(--color-surface-hover)' }}
               style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', borderBottom: i < logs.length - 1 ? '1px solid var(--color-surface-hover)' : 'none' }}
             >
               {/* Timeline dot */}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, flexShrink: 0 }}>
-                <div style={{ width: 32, height: 32, borderRadius: '50%', background: TYPE_COLORS[log.type as keyof typeof TYPE_COLORS].bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: TYPE_COLORS[log.type as keyof typeof TYPE_COLORS].color }}>
-                    {TYPE_COLORS[log.type as keyof typeof TYPE_COLORS].label}
+                <div style={{ width: 32, height: 32, borderRadius: '50%', background: typeMeta(log.type).bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: typeMeta(log.type).color }}>
+                    {typeMeta(log.type).label}
                   </span>
                 </div>
                 {i < logs.length - 1 && <div style={{ width: 1, flex: 1, background: 'var(--color-border)', minHeight: 20 }} />}
@@ -141,7 +142,7 @@ export default function OperationLog() {
 
               {/* Meta */}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
-                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>{log.time}</span>
+                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>{formatBySetting(log.time, { withTime: true })}</span>
                 <span style={{ fontSize: 10.5, color: 'var(--color-text-muted)' }}>IP: {log.ip}</span>
               </div>
             </motion.div>

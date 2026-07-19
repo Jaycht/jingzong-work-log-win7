@@ -21,4 +21,7 @@ export interface StorageAdapter {
 
   /** 清除所有匹配前缀的数据 */
   clear(prefix?: string): void;
+
+  /** 等待适配器就绪（如 IndexedDB 打开完成）后再执行操作 */
+  whenReady(): Promise<void>;
 }

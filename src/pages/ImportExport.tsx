@@ -21,7 +21,7 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '未知错误';
 }
 
-export default function ImportExport() {
+export default function ImportExport({ noHeader }: { noHeader?: boolean }) {
     const showToast = useAppStore((s) => s.showToast);
   const [importResult, setImportResult] = useState<{
     show: boolean;
@@ -100,6 +100,7 @@ export default function ImportExport() {
 
   return (
     <div>
+      {!noHeader && (
       <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
         style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
         <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 300, delay: 0.1 }}
@@ -111,6 +112,7 @@ export default function ImportExport() {
           <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 1 }}>支持 Excel / CSV / JSON 格式</div>
         </div>
       </motion.div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
         {/* 导入区 */}
@@ -290,18 +292,6 @@ export default function ImportExport() {
                 showToast('正在导出操作日志...', 'info');
               }}
             />
-            <div style={{
-              padding: '11px 14px', background: 'var(--color-surface-hover)',
-              border: '1px solid var(--color-border)', borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10,
-              opacity: 0.6,
-            }}>
-              <div style={{ fontSize: 9.5, padding: '1px 6px', borderRadius: 4, background: 'var(--color-surface-hover)', color: 'var(--color-text-muted)', fontWeight: 700, fontFamily: 'monospace' }}>pdf</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-muted)' }}>数据统计报告（PDF）</div>
-                <div style={{ fontSize: 11, color: '#B0BEC5' }}>需要后端支持 · 待实现</div>
-              </div>
-            </div>
           </div>
         </motion.div>
       </div>

@@ -35,25 +35,39 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('get-attachments-path'),
   setAttachmentsPath: (newPath) =>
     ipcRenderer.invoke('set-attachments-path', newPath),
-  onTriggerQuitBackup: (callback) =>
-    ipcRenderer.on('trigger-quit-backup', () => callback()),
 
-  // Win7版：自动更新已移除
+  // 以下 on* 包装统一返回「取消监听」函数，便于组件 cleanup 时对称移除（M-1 防泄漏）
+  onTriggerQuitBackup: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('trigger-quit-backup', handler);
+    return () => ipcRenderer.removeListener('trigger-quit-backup', handler);
+  },
 
   // 开机自启
   getAutoStart: () => ipcRenderer.invoke('get-auto-start'),
   setAutoStart: (enabled) => ipcRenderer.invoke('set-auto-start', enabled),
 
+  // 关闭窗口行为（V2.41.15）
+  setCloseBehavior: (behavior) => ipcRenderer.send('set-close-behavior', behavior),
+
   // 提醒系统
-  showReminder: (title, body, soundFile, noteId) => ipcRenderer.invoke('show-reminder', { title, body, soundFile, noteId }),
+  showReminder: (title, body, soundFile, noteId, extra) => ipcRenderer.invoke('show-reminder', { title, body, soundFile, noteId, extra: extra || {} }),
   cancelReminder: (id) => ipcRenderer.invoke('cancel-reminder', { id }),
 
   // 通知窗口操作
   closeNotifWindow: () => ipcRenderer.send('notif-close'),
   notifSnooze: (minutes, noteId) => ipcRenderer.send('notif-snooze', minutes, noteId),
   notifDismiss: (noteId) => ipcRenderer.send('notif-dismiss', noteId),
-  onReminderSnoozed: (callback) => ipcRenderer.on('reminder-snoozed', (_event, data) => callback(data)),
-  onReminderDismissed: (callback) => ipcRenderer.on('reminder-dismissed', (_event, data) => callback(data)),
+  onReminderSnoozed: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('reminder-snoozed', handler);
+    return () => ipcRenderer.removeListener('reminder-snoozed', handler);
+  },
+  onReminderDismissed: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('reminder-dismissed', handler);
+    return () => ipcRenderer.removeListener('reminder-dismissed', handler);
+  },
 
   // 桌面便签
   createNoteWindow: (noteData) => ipcRenderer.invoke('create-note-window', noteData),
@@ -62,8 +76,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   noteMinimize: (id) => ipcRenderer.send('note-minimize', { id }),
   noteClose: (id) => ipcRenderer.send('note-close', { id }),
   noteCopyText: (text) => ipcRenderer.send('note-copy-text', { text }),
-  onInitNote: (callback) => ipcRenderer.on('init-note', (_event, data) => callback(data)),
-  onNoteClosed: (callback) => ipcRenderer.on('note-closed', (_event, data) => callback(data)),
-  onNoteContentChanged: (callback) => ipcRenderer.on('note-content-changed', (_event, data) => callback(data)),
-  onNoteMinState: (callback) => ipcRenderer.on('note-minimize-state', (_event, data) => callback(data)),
+  onInitNote: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('init-note', handler);
+    return () => ipcRenderer.removeListener('init-note', handler);
+  },
+  onNoteClosed: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('note-closed', handler);
+    return () => ipcRenderer.removeListener('note-closed', handler);
+  },
+  onNoteContentChanged: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('note-content-changed', handler);
+    return () => ipcRenderer.removeListener('note-content-changed', handler);
+  },
+  onNoteMinState: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('note-minimize-state', handler);
+    return () => ipcRenderer.removeListener('note-minimize-state', handler);
+  },
 });

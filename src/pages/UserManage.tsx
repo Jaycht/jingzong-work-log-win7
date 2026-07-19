@@ -1,7 +1,15 @@
 import { motion } from 'framer-motion';
 import { UserCog, Plus, UserCheck, UserX, Edit, Trash2 } from 'lucide-react';
 import { useAppStore } from "../store/appStore"
-import { MOCK_USERS } from '../data';
+import type { User } from '../types';
+
+// 演示数据：本页为演示页，未接入真实账号系统（L-4）
+const DEMO_USERS: User[] = [
+  { id: '1', name: '张伟', account: 'zwei', badge: '030112', role: 'admin', roleName: '管理员', position: '大队长', status: 'active', lastLogin: '2026-07-12 08:30' },
+  { id: '2', name: '李娜', account: 'lna', badge: '030205', role: 'supervisor', roleName: '监督员', position: '法制室主任', status: 'active', lastLogin: '2026-07-11 17:12' },
+  { id: '3', name: '王强', account: 'wqiang', badge: '030318', role: 'user', roleName: '用户', position: '办案民警', status: 'maintenance', lastLogin: '2026-07-10 09:45' },
+  { id: '4', name: '赵敏', account: 'zmin', badge: '030421', role: 'user', roleName: '用户', position: '内勤', status: 'disabled', lastLogin: '2026-06-28 14:03' },
+];
 
 const ROLE_MAP: Record<string, { bg: string; color: string }> = {
   admin: { bg: '#EBF5FF', color: '#1B5E9B' },
@@ -43,6 +51,12 @@ export default function UserManage() {
         </motion.button>
       </motion.div>
 
+      {/* 演示页提示 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18, padding: '10px 14px', borderRadius: 8, background: 'rgba(230,126,34,0.10)', border: '1px solid rgba(230,126,34,0.35)', color: '#B45309', fontSize: 12.5 }}>
+        <span style={{ fontSize: 14 }}>⚠</span>
+        <span>演示页面：以下为模拟用户数据，<strong>未接入真实账号系统</strong>。新建 / 编辑 / 删除仅作交互演示，不会持久化。</span>
+      </div>
+
       {/* Summary */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 18 }}>
         {[
@@ -74,7 +88,7 @@ export default function UserManage() {
         initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
         className="panel" style={{ overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>共 <strong style={{ color: 'var(--color-text)' }}>48</strong> 个用户</div>
+          <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>共 <strong style={{ color: 'var(--color-text)' }}>{DEMO_USERS.length}</strong> 个用户（演示）</div>
           <div style={{ display: 'flex', gap: 6 }}>
             {['全部', '正常', '维护中', '已禁用'].map((f, i) => (
               <button key={f} style={{ height: 28, padding: '0 12px', border: '1.5px solid ' + (i === 0 ? 'var(--color-primary)' : 'var(--color-border)'), background: i === 0 ? '#EBF5FF' : 'var(--color-surface)', color: i === 0 ? 'var(--color-primary)' : 'var(--color-text-secondary)', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -92,7 +106,7 @@ export default function UserManage() {
             </tr>
           </thead>
           <tbody>
-            {MOCK_USERS.map((u, i) => (
+            {DEMO_USERS.map((u, i) => (
               <motion.tr key={u.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 + i * 0.06 }}
                 whileHover={{ background: 'var(--color-surface-hover)' }} style={{ borderBottom: '1px solid var(--color-surface-hover)' }}>
                 <td style={{ padding: '11px 14px' }}>

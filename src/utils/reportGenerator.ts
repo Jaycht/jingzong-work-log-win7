@@ -2,11 +2,12 @@
  * 通用日报/周报/月报生成器
  * 为每个模块生成 Word 兼容格式的报表
  */
-import { saveAs } from 'file-saver';
+import { buildDocReport } from './docReport';
 import { getMassRecords } from '../store/massStore';
 import type { MassRecord } from '../store/massStore';
 import type { WorkModule } from '../moduleConfig';
 import { escapeHtml } from './htmlUtils';
+import { formatChineseDate } from './format';
 
 type ReportType = 'daily' | 'weekly' | 'monthly';
 
@@ -49,10 +50,6 @@ function getPeriodRange(type: ReportType): { start: Date; end: Date; label: stri
   return { start, end, label: `${fmt(start)} ~ ${fmt(end)}` };
 }
 
-function fmtDate(d: Date): string {
-  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
-}
-
 /**
  * 生成并导出 Word 报表
  */
@@ -72,10 +69,8 @@ export function exportModuleReport(
   });
 
   const html = buildReportHtml(module, type, period, filtered);
-  const bom = '﻿';
-  const blob = new Blob([bom + html], { type: 'application/msword;charset=utf-8' });
   const fileName = `${module.departmentLabel}_${module.label}_${REPORT_LABELS[type]}_${period.label.replace(/[/\\?*[\]]/g, '_')}.doc`;
-  saveAs(blob, fileName);
+  buildDocReport(html, fileName);
 }
 
 
@@ -170,13 +165,13 @@ ${tabDetails || '<p style="color:#999;">无详细记录数据。</p>'}
 
 <div class="footer">
   <hr style="border-top:1px dashed #ccc;margin:30px 0 10px;" />
-  <div>报告生成日期：${fmtDate(now)}</div>
+  <div>报告生成日期：${formatChineseDate(now)}</div>
   <div class="sign">
     <div class="sign-item"><div>填报人：</div><div class="sign-line">（签名）</div></div>
     <div class="sign-item"><div>审核人：</div><div class="sign-line">（签名）</div></div>
-    <div class="sign-item"><div>日期：</div><div class="sign-line">${fmtDate(now)}</div></div>
+    <div class="sign-item"><div>日期：</div><div class="sign-line">${formatChineseDate(now)}</div></div>
   </div>
-  <div style="margin-top:20px;">本报告由经侦大队工作记录管理系统-Win7版-Win7版自动生成</div>
+  <div style="margin-top:20px;">本报告由经侦大队工作记录管理系统自动生成</div>
 </div>
 
 </body>

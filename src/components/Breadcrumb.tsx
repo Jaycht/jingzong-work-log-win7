@@ -5,7 +5,6 @@ import { DEPARTMENTS, PLATFORM_NAV } from "../moduleConfig";
 
 const FLAT_NAMES: Record<string, string> = {
   dashboard: "工作台",
-  statistics: "统计分析",
   importExport: "导入导出",
   attachments: "附件档案",
   operationLog: "操作日志",

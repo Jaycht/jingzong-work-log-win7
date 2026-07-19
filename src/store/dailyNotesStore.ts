@@ -7,15 +7,18 @@ import { useAppStore } from './appStore';
 
 const STORAGE_KEY = 'jingzong.dailyNotes';
 
+export type NotePriority = 'normal' | 'important' | 'urgent';
+
 export interface DailyNote {
   id: string;
   date: string;
   title: string;
   type: string;
+  priority: NotePriority;
   contents: string[];
   reminder: { enabled: boolean; time: string; repeat: string; sound?: string };
   notes: string;
-  attachments: any[];
+  attachments: Array<Record<string, unknown>>;
   createdAt: string;
   updatedAt: string;
 }
@@ -25,7 +28,11 @@ function currentUser(): string {
 }
 
 export function getDailyNotes(): DailyNote[] {
-  return indexedDBAdapter.getItem<DailyNote[]>(STORAGE_KEY, []);
+  // 返回副本而非适配器缓存引用：createDailyNote 用 unshift 原地修改，若返回同一引用，
+  // 则 setAllNotes(getDailyNotes()) 拿到同引用导致 React 跳过更新、useMemo 不重算，
+  // 卡片不刷新（重启才显示）。返回新数组可强制刷新（V2.41.20 修复 #2）
+  const raw = indexedDBAdapter.getItem<DailyNote[]>(STORAGE_KEY, []);
+  return Array.isArray(raw) ? [...raw] : [];
 }
 
 export function getCustomTypes(): string[] {
@@ -44,6 +51,7 @@ export function createDailyNote(data: Partial<DailyNote>): DailyNote {
     date: data.date || now.slice(0, 10),
     title: data.title || '',
     type: data.type || '一般工作',
+    priority: data.priority || 'normal',
     contents: data.contents || [''],
     reminder: data.reminder || { enabled: false, time: '', repeat: 'none', sound: 'QQ消息.wav' },
     notes: data.notes || '',

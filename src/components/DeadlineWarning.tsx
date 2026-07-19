@@ -8,7 +8,10 @@ import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { AlertTriangle, Clock, CalendarClock } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
-import { getMassRecords } from '../store/massStore';
+import { getMassRecords, getMassRecordById } from '../store/massStore';
+import { useDataChanged } from '../store/dataEvents';
+import { daysBetween } from '../utils/format';
+import { LEGAL_DEADLINE_RULES, getDeadlineSeverity } from '../constants/legalDeadlines';
 
 /* ===================== 类型定义 ===================== */
 
@@ -29,96 +32,9 @@ interface WarningItem {
 
 /* ===================== 工具函数 ===================== */
 
-function addDays(date: Date, days: number): Date {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
-}
-
-function addMonths(date: Date, months: number): Date {
-  const result = new Date(date);
-  result.setMonth(result.getMonth() + months);
-  return result;
-}
-
-function toDateStr(date: Date): string {
-  return date.getFullYear() + '-' +
-    String(date.getMonth() + 1).padStart(2, '0') + '-' +
-    String(date.getDate()).padStart(2, '0');
-}
-
 function calcRemaining(deadline: Date): number {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const diff = deadline.getTime() - today.getTime();
-  return Math.floor(diff / (1000 * 60 * 60 * 24));
+  return daysBetween(new Date(), deadline);
 }
-
-/* ===================== 法定期限规则 ===================== */
-
-interface DeadlineRule {
-  /** 该规则适用的模块ID */
-  moduleIds: string[];
-  /** 触发规则所需的日期字段名 */
-  dateField: string;
-  /** 到期事项中文名 */
-  type: string;
-  /** 计算到期日的函数 */
-  calcDeadline: (dateStr: string) => string;
-}
-
-const DEADLINE_RULES: DeadlineRule[] = [
-  // 一、受案→立案（经济犯罪：7日，重大复杂可延长）
-  // 用基础7天做预警，如果超期会提示
-  {
-    moduleIds: ['legal-report-case', 'legal-case-ledger', 'squad-case'],
-    dateField: 'receiveDate',
-    type: '受案→立案（7日）',
-    calcDeadline: (d) => toDateStr(addDays(new Date(d), 7)),
-  },
-  // 二、刑事拘留期限（流窜/多次/结伙作案最长30日）
-  {
-    moduleIds: ['squad-coercive', 'legal-case-ledger'],
-    dateField: 'criminalDetentionDate',
-    type: '刑事拘留（30日）',
-    calcDeadline: (d) => toDateStr(addDays(new Date(d), 30)),
-  },
-  // 三、提请逮捕审查（7日）
-  {
-    moduleIds: ['squad-coercive'],
-    dateField: 'criminalDetentionDate',
-    type: '提请逮捕审查（7日）',
-    calcDeadline: (d) => toDateStr(addDays(new Date(d), 23)), // 30日后需要报捕，但在23日时提醒7日审查期
-  },
-  // 四、逮捕后侦查羁押（一般2个月）
-  {
-    moduleIds: ['squad-coercive', 'legal-case-ledger', 'squad-case'],
-    dateField: 'arrestDate',
-    type: '侦查羁押到期（2个月）',
-    calcDeadline: (d) => toDateStr(addMonths(new Date(d), 2)),
-  },
-  // 五、取保候审（最长12个月）
-  {
-    moduleIds: ['squad-coercive', 'legal-case-ledger'],
-    dateField: 'bailDate',
-    type: '取保候审到期（12个月）',
-    calcDeadline: (d) => toDateStr(addMonths(new Date(d), 12)),
-  },
-  // 六、监视居住（最长6个月）
-  {
-    moduleIds: ['squad-coercive', 'legal-case-ledger'],
-    dateField: 'residentialSurveillanceDate',
-    type: '监视居住到期（6个月）',
-    calcDeadline: (d) => toDateStr(addMonths(new Date(d), 6)),
-  },
-  // 七、立案后侦查期限（一般2个月，不考虑延长）
-  {
-    moduleIds: ['squad-case', 'legal-case-ledger'],
-    dateField: 'filingDate',
-    type: '立案后侦查期限（2个月）',
-    calcDeadline: (d) => toDateStr(addMonths(new Date(d), 2)),
-  },
-];
 
 /* ===================== 主组件 ===================== */
 
@@ -127,12 +43,14 @@ export default function DeadlineWarning() {
   const setCurrentPage = useAppStore((s) => s.setCurrentPage);
   const openModal = useAppStore((s) => s.openModal);
   const setEditRecord = useAppStore((s) => s.setEditRecord);
+  // 依赖数据版本号：IndexedDB 就绪 / 数据变更后自动重读（H-4）
+  const dataVersion = useDataChanged();
 
   const warnings = useMemo<WarningItem[]>(() => {
     const allRecords = getMassRecords();
     const items: WarningItem[] = [];
 
-    for (const rule of DEADLINE_RULES) {
+    for (const rule of LEGAL_DEADLINE_RULES) {
       const targetRecords = allRecords.filter((r) => rule.moduleIds.includes(r.moduleId));
       for (const rec of targetRecords) {
         const rawDate = rec.data?.[rule.dateField];
@@ -143,20 +61,16 @@ export default function DeadlineWarning() {
           // 只展示 30 天内的预警（如果已过期也展示）
           if (remaining > 30) continue;
 
-          const severity: WarningItem['severity'] =
-            remaining <= 0 ? 'overdue'
-            : remaining <= 3 ? 'critical'
-            : remaining <= 7 ? 'warning'
-            : 'normal';
+          const severity: WarningItem['severity'] = getDeadlineSeverity(remaining);
 
           const caseName = String(rec.data?.caseName || rec.data?.suspect || rec.data?.person || '未命名案件');
 
           items.push({
-            id: `${rec.id}-${rule.dateField}-${rule.type}`,
+            id: `${rec.id}-${rule.dateField}-${rule.label}`,
             recordId: rec.id,
             moduleId: rec.moduleId,
             caseName: caseName.length > 16 ? caseName.slice(0, 16) + '…' : caseName,
-            type: rule.type,
+            type: rule.label,
             deadline,
             remainingDays: remaining,
             severity,
@@ -176,10 +90,10 @@ export default function DeadlineWarning() {
     });
 
     return items;
-  }, []);
+  }, [dataVersion]);
 
   const handleClick = (item: WarningItem) => {
-    const record = getMassRecords().find((r) => r.id === item.recordId);
+    const record = getMassRecordById(item.recordId);
     if (!record) return;
     setEditRecord(record);
     setCurrentPage(item.moduleId);
